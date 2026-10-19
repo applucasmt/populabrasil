@@ -3,18 +3,11 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { Water } from 'three/addons/objects/Water.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
 // ============================================================
-// REGIÕES E COORDENADAS
+// CONFIGURAÇÕES BASE
 // ============================================================
-const REGIOES = {
-  'Norte':        { lat: -4.0,  lon: -62.0 },
-  'Nordeste':     { lat: -8.0,  lon: -40.0 },
-  'Centro-Oeste': { lat: -14.0, lon: -52.0 },
-  'Sudeste':      { lat: -20.0, lon: -45.0 },
-  'Sul':          { lat: -27.0, lon: -51.0 }
-};
-
 const LAT_MIN = -34, LAT_MAX = 6;
 const LON_MIN = -74, LON_MAX = -34;
 const SCALE_X = 30 / (LON_MAX - LON_MIN);
@@ -26,17 +19,8 @@ function latLonParaCena(lat, lon) {
   return new THREE.Vector3(x, 1.0, z);
 }
 
-const CORES_UF = {
-  AC:0x2e8b57, AL:0xf59e0b, AM:0x16a34a, AP:0x22c55e, BA:0xca8a04,
-  CE:0xea580c, DF:0xdc2626, ES:0x2563eb, GO:0xf97316, MA:0xfacc15,
-  MG:0x3b82f6, MS:0xdc2626, MT:0xf97316, PA:0x15803d, PB:0xfbbf24,
-  PE:0xef4444, PI:0xfde047, PR:0xa855f7, RJ:0x1d4ed8, RN:0xf59e0b,
-  RO:0x166534, RR:0x22c55e, RS:0x7c3aed, SC:0x9333ea, SE:0xfacc15,
-  SP:0x1e40af, TO:0xca8a04
-};
-
 // ============================================================
-// CENA / CÂMERA / RENDERER
+// CENA, CÂMERA, RENDERER E WEBRTC (PEERJS)
 // ============================================================
 const app = document.getElementById('app');
 const scene = new THREE.Scene();
@@ -52,6 +36,14 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.6;
 app.appendChild(renderer.domElement);
 
+// Renderer CSS2D para Nomes flutuantes
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(innerWidth, innerHeight);
+labelRenderer.domElement.style.position = 'absolute';
+labelRenderer.domElement.style.top = '0px';
+labelRenderer.domElement.style.pointerEvents = 'none';
+app.appendChild(labelRenderer.domElement);
+
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
@@ -60,25 +52,21 @@ controls.minDistance = 10;
 controls.maxDistance = 100;
 
 // ============================================================
-// CÉU E LUZES REALISTAS
+// CÉU E LUZES
 // ============================================================
 const sky = new Sky();
 sky.scale.setScalar(45000);
 scene.add(sky);
-
 const skyUniforms = sky.material.uniforms;
 skyUniforms['turbidity'].value = 10;
 skyUniforms['rayleigh'].value = 2;
 skyUniforms['mieCoefficient'].value = 0.005;
 skyUniforms['mieDirectionalG'].value = 0.8;
 
-const sunPos = new THREE.Vector3();
-const phi = THREE.MathUtils.degToRad(90 - 15); // Sol mais alto
-const theta = THREE.MathUtils.degToRad(180);
-sunPos.setFromSphericalCoords(1, phi, theta);
+const sunPos = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 15), THREE.MathUtils.degToRad(180));
 skyUniforms['sunPosition'].value.copy(sunPos);
 
-const sunLight = new THREE.DirectionalLight(0xffffff, 2.5);
+const sunLight = new THREE.DirectionalLight(0xffffff, 3.0); // Luz mais forte para o navio
 sunLight.position.copy(sunPos).multiplyScalar(100);
 sunLight.castShadow = true;
 sunLight.shadow.mapSize.set(2048, 2048);
@@ -87,32 +75,26 @@ sunLight.shadow.camera.right = 40;
 sunLight.shadow.camera.top = 40;
 sunLight.shadow.camera.bottom = -40;
 scene.add(sunLight);
-scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
 // ============================================================
-// OCEANO DE ALTA QUALIDADE
+// OCEANO
 // ============================================================
 const waterGeometry = new THREE.PlaneGeometry(10000, 10000);
 const waterNormals = new THREE.TextureLoader().load('https://threejs.org/examples/textures/waternormals.jpg', (tex) => {
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
 });
-
 const water = new Water(waterGeometry, {
-  textureWidth: 1024, // Dobro de resolução
-  textureHeight: 1024,
-  waterNormals: waterNormals,
-  sunDirection: new THREE.Vector3(),
-  sunColor: 0xffffff,
-  waterColor: 0x001e3a,
-  distortionScale: 4.0,
-  fog: scene.fog !== undefined
+  textureWidth: 512, textureHeight: 512, waterNormals: waterNormals,
+  sunDirection: new THREE.Vector3(), sunColor: 0xffffff, waterColor: 0x001e3a,
+  distortionScale: 3.7, fog: scene.fog !== undefined
 });
 water.rotation.x = -Math.PI / 2;
 water.position.y = -0.3;
 scene.add(water);
 
 // ============================================================
-// MAPA DO BRASIL (Correção do Vazamento com ShapeGeometry)
+// MAPA CORRIGIDO (Sem linhas cortando)
 // ============================================================
 const grupoMapa = new THREE.Group();
 const grupoBordas = new THREE.Group();
@@ -123,12 +105,9 @@ scene.add(grupoBordas);
 async function carregarEstados() {
   const resp = await fetch('data/estados.geojson');
   const geojson = await resp.json();
+  const corUnica = 0x1f8a4c; // COR ÚNICA DO BRASIL
 
   for (const feature of geojson.features) {
-    const uf = (feature.properties.sigla || feature.properties.SIGLA || '').toUpperCase();
-    if (!uf) continue;
-    
-    const cor = CORES_UF[uf] ?? 0x22c55e;
     const geo = feature.geometry;
     const polygons = geo.type === 'Polygon' ? [geo.coordinates] : geo.type === 'MultiPolygon' ? geo.coordinates : [];
 
@@ -153,43 +132,40 @@ async function carregarEstados() {
         shape.holes.push(path);
       }
 
-      // CORREÇÃO AQUI: Usando ShapeGeometry em camadas para evitar paredes bugadas
-      
-      // 1. Camada de Sombra (Fundo do estado)
+      // CORREÇÃO: Desenha o estado sem estourar as bordas
       const geoBase = new THREE.ShapeGeometry(shape);
       geoBase.rotateX(-Math.PI / 2);
       const meshBase = new THREE.Mesh(geoBase, new THREE.MeshStandardMaterial({
-        color: new THREE.Color(cor).multiplyScalar(0.6), roughness: 0.8
+        color: new THREE.Color(corUnica).multiplyScalar(0.7), roughness: 0.8
       }));
       meshBase.position.y = 0.85;
       meshBase.receiveShadow = true;
-      meshBase.userData = { uf, isEstado: true };
+      meshBase.userData = { uf: feature.properties.sigla || 'BR', isEstado: true };
       grupoMapa.add(meshBase);
 
-      // 2. Camada de Cima (Superfície colorida)
+      // Camada de cima (Verde unificado)
       const geoTela = new THREE.ShapeGeometry(shape);
       geoTela.rotateX(-Math.PI / 2);
       const meshTela = new THREE.Mesh(geoTela, new THREE.MeshStandardMaterial({
-        color: cor, roughness: 0.5, metalness: 0.1
+        color: corUnica, roughness: 0.5, metalness: 0.1
       }));
       meshTela.position.y = 1.0;
       meshTela.castShadow = true;
       meshTela.receiveShadow = true;
-      meshTela.userData = { uf, isEstado: true };
+      meshTela.userData = { uf: feature.properties.sigla || 'BR', isEstado: true };
       
       grupoMapa.add(meshTela);
       estadosClique.push(meshTela);
 
-      // 3. Fronteiras Brancas (Alinhadas perfeitamente na camada de cima)
-      const pos = geoTela.attributes.position;
-      const points = [];
-      for (let i = 0; i < pos.count; i++) {
-        points.push(new THREE.Vector3(pos.getX(i), 1.01, pos.getZ(i)));
-      }
+      // CORREÇÃO DAS LINHAS: Pega o contorno do Shape (outer) para evitar linhas cruzadas
+      const pontosContorno = outer.map(([lon, lat]) => {
+        const p = latLonParaCena(lat, lon);
+        return new THREE.Vector3(p.x, 1.02, -p.z);
+      });
       
-      const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+      const lineGeo = new THREE.BufferGeometry().setFromPoints(pontosContorno);
       const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ 
-        color: 0xffffff, transparent: true, opacity: 0.7 
+        color: 0xffffff, transparent: true, opacity: 0.5 
       }));
       grupoBordas.add(line);
     }
@@ -199,6 +175,7 @@ async function carregarEstados() {
 // ============================================================
 // CASAS
 // ============================================================
+const casas = [];
 function criarCasa(fotoURL, usuario, nome) {
   const grupo = new THREE.Group();
   const base = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1, 1.3), new THREE.MeshStandardMaterial({ color: 0xf5f5dc }));
@@ -209,201 +186,222 @@ function criarCasa(fotoURL, usuario, nome) {
   telhado.position.y = 1.45; telhado.rotation.y = Math.PI / 4; telhado.castShadow = true;
   grupo.add(telhado);
 
-  let placaMat;
   if (fotoURL) {
-    placaMat = new THREE.MeshBasicMaterial({ transparent: true });
+    const placaMat = new THREE.MeshBasicMaterial({ transparent: true });
     placaMat.map = new THREE.TextureLoader().load(fotoURL);
-  } else {
-    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
-    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#22c55e'; ctx.fillRect(0, 0, 128, 128);
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 64px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText((usuario[1] || '?').toUpperCase(), 64, 92);
-    placaMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas) });
+    const placa = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.65), placaMat);
+    placa.position.set(0, 1.05, 0.66);
+    grupo.add(placa);
   }
-
-  const placa = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.65), placaMat);
-  placa.position.set(0, 1.05, 0.66);
-  grupo.add(placa);
-
-  const bandeira = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.25), new THREE.MeshStandardMaterial({ color: 0x22c55e, side: THREE.DoubleSide }));
-  bandeira.position.set(0.2, 2.6, 0); bandeira.userData.bandeira = true;
-  grupo.add(bandeira);
 
   grupo.userData = { usuario, nome, fotoURL };
   return grupo;
 }
 
 // ============================================================
-// BARCO REALISTA (GLB ou Fallback de Madeira)
+// NAVIO REALISTA E INTERATIVO
 // ============================================================
 let barco;
+const shipHitbox = new THREE.Mesh(new THREE.BoxGeometry(15, 10, 15), new THREE.MeshBasicMaterial({ visible: false }));
+
 async function criarBarco() {
   return new Promise((resolve) => {
     const loader = new GLTFLoader();
-    
-    // Tenta carregar o barco da pasta assets/
     loader.load('assets/barco.glb', (gltf) => {
       barco = gltf.scene;
-      barco.scale.set(2, 2, 2); 
-      barco.position.set(24, 0.2, 5);
-      barco.rotation.y = -0.8;
-      barco.traverse(c => { if(c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+      barco.scale.set(0.8, 0.8, 0.8); 
+      barco.position.set(20, -0.5, 10); // Ajustado para não flutuar muito
+      barco.rotation.y = -0.5;
       
-      adicionarItensAoBarco();
+      // AJUSTE DE TEXTURA: Se o navio estiver preto, isso garante que a luz bata nele
+      barco.traverse(c => { 
+        if(c.isMesh) { 
+          c.castShadow = true; 
+          c.receiveShadow = true; 
+          if(c.material) c.material.envMapIntensity = 1.5;
+        } 
+      });
+
+      barco.add(shipHitbox); // Adiciona área de clique
       resolve(barco);
-
     }, undefined, () => {
-      // FALLBACK: Veleiro de madeira procedural se não achar o assets/barco.glb
-      console.warn("assets/barco.glb não encontrado. Usando fallback procedural.");
+      // Fallback super simples
       barco = new THREE.Group();
-      
-      const matMad = new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.8 });
-      const matVel = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, side: THREE.DoubleSide });
-
-      const casco = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.6, 1.4), matMad);
-      casco.position.y = 0.3; casco.castShadow = true; barco.add(casco);
-
-      const proa = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.5, 4), matMad);
-      proa.rotation.z = -Math.PI / 2; proa.rotation.y = Math.PI / 4;
-      proa.position.set(1.8, 0.3, 0); barco.add(proa);
-
-      const cabine = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.9), matMad);
-      cabine.position.set(-0.8, 0.9, 0); barco.add(cabine);
-
-      const mastro = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3), matMad);
-      mastro.position.set(0.5, 1.8, 0); barco.add(mastro);
-
-      const vela = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2), matVel);
-      vela.position.set(0.5, 2.0, 0); vela.rotation.y = Math.PI / 2; barco.add(vela);
-
-      barco.position.set(24, 0.2, 5);
-      barco.rotation.y = -0.8;
-      adicionarItensAoBarco();
+      const casco = new THREE.Mesh(new THREE.BoxGeometry(5, 2, 2), new THREE.MeshStandardMaterial({color: 0x5c3a21}));
+      barco.add(casco);
+      barco.position.set(20, 0, 10);
+      barco.add(shipHitbox);
       resolve(barco);
     });
   });
 }
 
-function adicionarItensAoBarco() {
-  barco.userData = { passageiros: [] };
-
-  // Placa
-  const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128;
-  const ctx = canvas.getContext('2d'); ctx.fillStyle = '#0a0e1a'; ctx.fillRect(0, 0, 512, 128);
-  ctx.strokeStyle = '#d4af37'; ctx.lineWidth = 6; ctx.strokeRect(6, 6, 500, 116);
-  ctx.fillStyle = '#22c55e'; ctx.font = 'bold 34px sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText('POSSÍVEIS MORADORES', 256, 55);
-  ctx.font = '18px sans-serif'; ctx.fillStyle = '#94a3b8';
-  ctx.fillText('aguardando comentário...', 256, 90);
-  
-  const placa = new THREE.Mesh(
-    new THREE.PlaneGeometry(2.5, 0.6),
-    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), side: THREE.DoubleSide })
-  );
-  placa.position.set(0, 1.8, 0.5);
-  barco.add(placa);
-}
-
 // ============================================================
-// MORADORES E LÓGICA
+// SISTEMA DE CHAT E VOZ (PEERJS)
 // ============================================================
-const casas = [];
-async function carregarMoradores() {
-  barco = await criarBarco();
-  scene.add(barco);
+// Inicializa PeerJS (Servidor público gratuito)
+const peer = new Peer(); 
+let connections = [];
+let localStream = null;
 
-  try {
-    const resp = await fetch('data/moradores.json?t=' + Date.now());
-    const data = await resp.json();
-    for (const m of data.moradores || []) {
-      if (m.comentou && m.lat && m.lon) adicionarCasa(m);
-      else adicionarAoBarco(m);
-    }
-  } catch (e) { console.warn('Sem moradores ainda:', e); }
-  atualizarStats();
-}
-
-function adicionarCasa(m) {
-  const casa = criarCasa(m.foto, m.usuario, m.nome);
-  const pos = latLonParaCena(m.lat, m.lon);
-
-  casa.position.copy(pos);
-  casa.position.y = 1.5;
-  casa.position.x += (Math.random() - 0.5) * 1.5;
-  casa.position.z += (Math.random() - 0.5) * 1.5;
-
-  casa.position.y = 18;
-  casa.scale.setScalar(0.01);
-  scene.add(casa);
-  casas.push(casa);
-
-  const inicio = performance.now();
-  const anim = () => {
-    const t = Math.min((performance.now() - inicio) / 1000, 1);
-    const ease = 1 - Math.pow(1 - t, 3);
-    casa.position.y = 18 + (1.5 - 18) * ease;
-    casa.scale.setScalar(ease);
-    if (t < 1) requestAnimationFrame(anim);
-  };
-  anim();
-}
-
-function adicionarAoBarco(m) {
-  const idx = barco.userData.passageiros.length;
-  const avatar = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 16), new THREE.MeshStandardMaterial({ color: 0x22c55e }));
-  
-  // Ajusta a posição no convés
-  avatar.position.set(-1.0 + (idx % 4) * 0.6, 1.0 + Math.floor(idx / 4) * 0.45, 0.2);
-  barco.add(avatar);
-
-  const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
-  const ctx = canvas.getContext('2d'); ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(4, 4, 248, 56);
-  ctx.fillStyle = '#4ade80'; ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText(m.usuario, 128, 38);
-
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false }));
-  sprite.scale.set(1.4, 0.35, 1);
-  sprite.position.copy(avatar.position).add(new THREE.Vector3(0, 0.45, 0));
-  barco.add(sprite);
-
-  barco.userData.passageiros.push(m);
-}
-
-function atualizarStats() {
-  document.getElementById('totalCasas').textContent = `${casas.length} casas`;
-  document.getElementById('totalBarco').textContent = `${barco?.userData.passageiros.length || 0} no barco`;
-}
-
-// ============================================================
-// VOZ (TTS)
-// ============================================================
-let vozAtivada = false;
-let vozesDisponiveis = [];
-if ('speechSynthesis' in window) {
-  vozesDisponiveis = speechSynthesis.getVoices();
-  speechSynthesis.onvoiceschanged = () => vozesDisponiveis = speechSynthesis.getVoices();
-}
-
-const btnVoz = document.getElementById('btnVoz');
-btnVoz.addEventListener('click', () => {
-  vozAtivada = true;
-  btnVoz.textContent = '🔊 Voz Ativada';
-  btnVoz.classList.add('ativo');
-  falar('Voz ativada! Bem-vindo ao Brasil 3D.');
+peer.on('open', (id) => {
+  console.log('Meu ID de conexão:', id);
 });
 
-function falar(texto) {
-  if (!vozAtivada || !('speechSynthesis' in window)) return;
-  speechSynthesis.cancel();
-  const utt = new SpeechSynthesisUtterance(texto);
-  utt.lang = 'pt-BR'; utt.rate = 1.0; utt.pitch = 1.1;
-  const vozBR = vozesDisponiveis.find(v => v.lang === 'pt-BR') || vozesDisponiveis.find(v => v.lang.startsWith('pt'));
-  if (vozBR) utt.voice = vozBR;
-  speechSynthesis.speak(utt);
+// Recebe conexão de outro jogador
+peer.on('connection', (conn) => {
+  connections.push(conn);
+  setupConnection(conn);
+});
+
+// Conecta a um jogador existente
+function conectarAoJogador(peerId) {
+  const conn = peer.connect(peerId);
+  connections.push(conn);
+  setupConnection(conn);
+}
+
+function setupConnection(conn) {
+  conn.on('data', (data) => {
+    if (data.type === 'chat') {
+      addChatMessage(data.user, data.text);
+    }
+  });
+}
+
+// UI do Chat
+const shipUI = document.getElementById('ship-ui');
+const chatMessages = document.getElementById('chat-messages');
+const chatInput = document.getElementById('chat-input');
+const chatSend = document.getElementById('chat-send');
+
+// UI de Customização
+const customPanel = document.getElementById('customize-panel');
+const colorPicker = document.getElementById('color-picker');
+const saveCustom = document.getElementById('save-custom');
+
+// Função para abrir o navio
+function abrirNavio() {
+  shipUI.classList.add('active');
+  customPanel.classList.add('active');
+  // Desativa controles de câmera para não bugar o mouse no chat
+  controls.enabled = false;
+}
+
+// Fechar Customização
+saveCustom.addEventListener('click', () => {
+  customPanel.classList.remove('active');
+  // Aqui você aplicaria a cor no seu avatar 3D
+  const cor = colorPicker.value;
+  if(avatar) avatar.material.color.set(cor);
+});
+
+// Enviar mensagem no chat
+chatSend.addEventListener('click', () => {
+  const text = chatInput.value.trim();
+  const user = prompt("Seu nome no chat:", "Visitante") || "Visitante";
+  if (text) {
+    addChatMessage(user, text);
+    connections.forEach(conn => {
+      if (conn.open) conn.send({ type: 'chat', user, text });
+    });
+    chatInput.value = '';
+  }
+});
+
+function addChatMessage(user, text) {
+  const div = document.createElement('div');
+  div.className = 'chat-msg';
+  div.innerHTML = `<strong>${user}:</strong> ${text}`;
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 // ============================================================
-// ANIMAÇÃO DE CÂMERA E CLIQUE
+// AVATAR (ROBLOX STYLE)
+// ============================================================
+let avatar;
+function criarAvatar() {
+  avatar = new THREE.Group();
+  // Corpo
+  const corpo = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1, 0.5), new THREE.MeshStandardMaterial({color: 0x3b82f6}));
+  corpo.position.y = 0.5;
+  avatar.add(corpo);
+  // Cabeça
+  const cabeca = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshStandardMaterial({color: 0xffcc99}));
+  cabeca.position.y = 1.2;
+  avatar.add(cabeca);
+  
+  // Nome flutuante
+  const div = document.createElement('div');
+  div.textContent = 'Você';
+  div.style.color = '#fff';
+  div.style.fontWeight = 'bold';
+  div.style.textShadow = '1px 1px 2px #000';
+  const label = new CSS2DObject(div);
+  label.position.set(0, 1.7, 0);
+  avatar.add(label);
+
+  avatar.position.set(20, 1.5, 10); // Em cima do navio
+  scene.add(avatar);
+}
+
+// ============================================================
+// INTERAÇÃO E CLIQUE
+// ============================================================
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const tooltipEl = document.createElement('div');
+tooltipEl.className = 'tooltip';
+tooltipEl.style.display = 'none';
+document.body.appendChild(tooltipEl);
+
+function getIntersects(e, objects) {
+  mouse.x = (e.clientX / innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  return raycaster.intersectObjects(objects, true);
+}
+
+addEventListener('mousemove', e => {
+  const hitsBarco = getIntersects(e, [shipHitbox]);
+  if (hitsBarco.length > 0) {
+    tooltipEl.innerHTML = `<strong>Navio Pirata</strong> · Clique para interagir`;
+    tooltipEl.style.left = e.clientX + 'px';
+    tooltipEl.style.top = e.clientY + 'px';
+    tooltipEl.style.display = 'block';
+    document.body.style.cursor = 'pointer';
+    return;
+  }
+
+  const hitsCasas = getIntersects(e, casas);
+  if (hitsCasas.length > 0) {
+    tooltipEl.style.display = 'block';
+    document.body.style.cursor = 'pointer';
+  } else {
+    tooltipEl.style.display = 'none';
+    document.body.style.cursor = 'default';
+  }
+});
+
+addEventListener('click', e => {
+  // Clicou no Navio
+  const hitsBarco = getIntersects(e, [shipHitbox]);
+  if (hitsBarco.length > 0) {
+    abrirNavio();
+    // Voa câmera para o navio
+    voarPara(barco.position.clone(), 1500, new THREE.Vector3(0, 8, 15));
+    return;
+  }
+  
+  // Fechar painéis se clicar fora
+  if (shipUI.classList.contains('active')) {
+    // Se o clique não foi no painel, fecha (opcional)
+  }
+});
+
+// ============================================================
+// CÂMERA E MOVIMENTO
 // ============================================================
 let camAnim = null;
 function voarPara(alvo, duracao = 2000, offset = new THREE.Vector3(0, 9, 11)) {
@@ -422,82 +420,8 @@ function voarPara(alvo, duracao = 2000, offset = new THREE.Vector3(0, 9, 11)) {
   };
 }
 
-document.querySelectorAll('#legenda button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const regiao = btn.dataset.regiao;
-    if (regiao === 'BRASIL') {
-      voarPara(new THREE.Vector3(0, 1.5, 0), 1800, new THREE.Vector3(0, 25, 35));
-      return;
-    }
-    const cfg = REGIOES[regiao];
-    if (!cfg) return;
-    voarPara(latLonParaCena(cfg.lat, cfg.lon), 1600);
-    if (vozAtivada) setTimeout(() => falar(`Região ${regiao}!`), 200);
-  });
-});
-
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
-const tooltipEl = document.createElement('div');
-tooltipEl.className = 'tooltip';
-tooltipEl.style.display = 'none';
-document.body.appendChild(tooltipEl);
-
-function getIntersects(e, objects) {
-  mouse.x = (e.clientX / innerWidth) * 2 - 1;
-  mouse.y = -(e.clientY / innerHeight) * 2 + 1;
-  raycaster.setFromCamera(mouse, camera);
-  return raycaster.intersectObjects(objects, true);
-}
-
-addEventListener('mousemove', e => {
-  const hits = getIntersects(e, casas);
-  if (hits.length > 0) {
-    let obj = hits[0].object;
-    while (obj.parent && !obj.userData.usuario) obj = obj.parent;
-    if (obj.userData.usuario) {
-      tooltipEl.innerHTML = `<strong>${obj.userData.usuario}</strong> · ${obj.userData.nome}`;
-      tooltipEl.style.left = e.clientX + 'px';
-      tooltipEl.style.top = e.clientY + 'px';
-      tooltipEl.style.display = 'block';
-      document.body.style.cursor = 'pointer';
-      return;
-    }
-  }
-  
-  const hitsEstado = getIntersects(e, estadosClique);
-  if (hitsEstado.length > 0) {
-    const uf = hitsEstado[0].object.userData.uf;
-    tooltipEl.innerHTML = `<strong>${uf}</strong> · Clique para explorar`;
-    tooltipEl.style.left = e.clientX + 'px';
-    tooltipEl.style.top = e.clientY + 'px';
-    tooltipEl.style.display = 'block';
-    document.body.style.cursor = 'pointer';
-  } else {
-    tooltipEl.style.display = 'none';
-    document.body.style.cursor = 'default';
-  }
-});
-
-addEventListener('click', e => {
-  const hitsEstado = getIntersects(e, estadosClique);
-  if (hitsEstado.length > 0) {
-    const meshClicado = hitsEstado[0].object;
-    meshClicado.geometry.computeBoundingBox();
-    const centro = new THREE.Vector3();
-    meshClicado.geometry.boundingBox.getCenter(centro);
-    
-    const posGlobal = meshClicado.localToWorld(centro);
-    posGlobal.y = 1.0;
-    
-    voarPara(posGlobal, 1500, new THREE.Vector3(0, 8, 10));
-    
-    if (vozAtivada) setTimeout(() => falar(`Explorando o estado ${meshClicado.userData.uf}`), 200);
-  }
-});
-
 // ============================================================
-// LOOP DE ANIMAÇÃO
+// LOOP
 // ============================================================
 const clock = new THREE.Clock();
 function animar() {
@@ -507,32 +431,53 @@ function animar() {
   water.material.uniforms['time'].value += 0.5 / 60.0;
 
   if (barco) {
-    barco.position.y = Math.sin(t * 1.5) * 0.15;
-    barco.rotation.z = Math.sin(t * 1.0) * 0.05;
-    barco.rotation.x = Math.cos(t * 0.8) * 0.03;
-    barco.children.forEach(ch => {
-      if (ch.userData.bandeira) ch.rotation.y = Math.sin(t * 3) * 0.3;
-    });
+    barco.position.y = -0.5 + Math.sin(t * 1.0) * 0.15;
+    barco.rotation.z = Math.sin(t * 0.8) * 0.03;
+    barco.rotation.x = Math.cos(t * 0.5) * 0.02;
+    
+    // Atualiza a hitbox invisível junto com o barco
+    shipHitbox.position.copy(barco.position);
   }
 
-  casas.forEach(c => c.children.forEach(ch => {
-    if (ch.userData.bandeira) ch.rotation.y = Math.sin(t * 3 + c.position.x) * 0.35;
-  }));
+  if (avatar) {
+    // Faz o avatar "respirar" levemente
+    avatar.position.y = 1.5 + Math.sin(t * 2) * 0.05; 
+  }
 
   if (camAnim) camAnim();
   controls.update();
   renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
 }
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  labelRenderer.setSize(innerWidth, innerHeight);
 });
 
 (async () => {
-  try { await carregarEstados(); } catch (e) { console.error(e); }
-  await carregarMoradores();
+  await carregarEstados();
+  barco = await criarBarco();
+  scene.add(barco);
+  criarAvatar();
+  
+  // Carrega moradores
+  try {
+    const resp = await fetch('data/moradores.json?t=' + Date.now());
+    const data = await resp.json();
+    for (const m of data.moradores || []) {
+      if (m.comentou && m.lat && m.lon) {
+         const casa = criarCasa(m.foto, m.usuario, m.nome);
+         casa.position.copy(latLonParaCena(m.lat, m.lon));
+         casa.position.y = 1.5;
+         scene.add(casa);
+         casas.push(casa);
+      }
+    }
+  } catch(e) {}
+
   document.getElementById('loading').classList.add('hide');
   animar();
 
