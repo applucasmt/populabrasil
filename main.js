@@ -1,8 +1,11 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { Sky } from 'three/addons/objects/Sky.js';
+import { Water } from 'three/addons/objects/Water.js';
 
 // ============================================================
-// REGIÕES (para botões de navegação)
+// REGIÕES (Fallback para botões)
 // ============================================================
 const REGIOES = {
   'Norte':        { lat: -4.0,  lon: -62.0, cor: 0x22c55e },
@@ -34,21 +37,20 @@ const CORES_UF = {
 };
 
 // ============================================================
-// CENA / RENDERER / CONTROLES
+// CENA BASE
 // ============================================================
 const app = document.getElementById('app');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0e1a);
-scene.fog = new THREE.Fog(0x0a0e1a, 45, 130);
-
-const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 500);
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 1000);
 camera.position.set(0, 30, 45);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.5;
 app.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -56,45 +58,71 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 controls.maxPolarAngle = Math.PI / 2.05;
 controls.minDistance = 12;
-controls.maxDistance = 90;
+controls.maxDistance = 100;
 
 // ============================================================
-// LUZES
+// CÉU REALISTA E NUVENS
 // ============================================================
-scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-sun.position.set(25, 40, 25);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-scene.add(sun);
-const fill = new THREE.DirectionalLight(0x3b82f6, 0.4);
-fill.position.set(-20, 15, -20);
-scene.add(fill);
+const sky = new Sky();
+sky.scale.setScalar(45000);
+scene.add(sky);
+
+const skyUniforms = sky.material.uniforms;
+skyUniforms['turbidity'].value = 10;
+skyUniforms['rayleigh'].value = 2;
+skyUniforms['mieCoefficient'].value = 0.005;
+skyUniforms['mieDirectionalG'].value = 0.8;
+
+const sunPos = new THREE.Vector3();
+const phi = THREE.MathUtils.degToRad(90 - 10);
+const theta = THREE.MathUtils.degToRad(180);
+sunPos.setFromSphericalCoords(1, phi, theta);
+skyUniforms['sunPosition'].value.copy(sunPos);
+
+// Sol (Luz)
+const sunLight = new THREE.DirectionalLight(0xffffff, 2.5);
+sunLight.position.copy(sunPos).multiplyScalar(100);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.set(2048, 2048);
+sunLight.shadow.camera.left = -40;
+sunLight.shadow.camera.right = 40;
+sunLight.shadow.camera.top = 40;
+sunLight.shadow.camera.bottom = -40;
+scene.add(sunLight);
+scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
 // ============================================================
-// OCEANO
+// MAR REALISTA (Água com reflexo)
 // ============================================================
-const oceanGeo = new THREE.PlaneGeometry(200, 200, 80, 80);
-const oceanMat = new THREE.MeshPhongMaterial({
-  color: 0x1e3a8a, transparent: true, opacity: 0.9,
-  shininess: 120, specular: 0x60a5fa
+const waterGeometry = new THREE.PlaneGeometry(10000, 10000);
+const water = new Water(waterGeometry, {
+  textureWidth: 512,
+  textureHeight: 512,
+  waterNormals: new THREE.TextureLoader().load('https://threejs.org/examples/textures/waternormals.jpg', (texture) => {
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  }),
+  sunDirection: new THREE.Vector3(),
+  sunColor: 0xffffff,
+  waterColor: 0x001e3a,
+  distortionScale: 3.7,
+  fog: scene.fog !== undefined
 });
-const ocean = new THREE.Mesh(oceanGeo, oceanMat);
-ocean.rotation.x = -Math.PI / 2;
-ocean.position.y = -0.3;
-ocean.receiveShadow = true;
-scene.add(ocean);
-const oceanOrig = Float32Array.from(oceanGeo.attributes.position.array);
+water.rotation.x = -Math.PI / 2;
+water.position.y = -0.3;
+scene.add(water);
 
 // ============================================================
-// MAPA REAL (Estados + Fronteiras Alinhadas)
+// MAPA REAL E INTERATIVO
 // ============================================================
+const grupoMapa = new THREE.Group();
+const grupoBordas = new THREE.Group();
+const estadosClique = []; // Para o Raycaster
+scene.add(grupoMapa);
+scene.add(grupoBordas);
+
 async function carregarEstados() {
   const resp = await fetch('data/estados.geojson');
   const geojson = await resp.json();
-
-  const grupoMapa = new THREE.Group();
-  const grupoBordas = new THREE.Group();
 
   for (const feature of geojson.features) {
     const uf = (feature.properties.sigla || feature.properties.SIGLA || '').toUpperCase();
@@ -125,18 +153,20 @@ async function carregarEstados() {
         shape.holes.push(path);
       }
 
-      // Mesh 3D
       const geo3D = new THREE.ExtrudeGeometry(shape, { depth: 0.6, bevelEnabled: false });
       geo3D.rotateX(-Math.PI / 2);
       
       const mesh = new THREE.Mesh(geo3D, new THREE.MeshStandardMaterial({
-        color: cor, roughness: 0.7, metalness: 0.1
+        color: cor, roughness: 0.6, metalness: 0.1
       }));
       mesh.castShadow = true;
       mesh.receiveShadow = true;
+      mesh.userData = { uf, isEstado: true };
+      
       grupoMapa.add(mesh);
+      estadosClique.push(mesh); // Adiciona para o clique
 
-      // Fronteiras (Linhas)
+      // Fronteiras brancas perfeitas
       const geoLinha = new THREE.ShapeGeometry(shape);
       geoLinha.rotateX(-Math.PI / 2);
       const pos = geoLinha.attributes.position;
@@ -147,25 +177,22 @@ async function carregarEstados() {
       
       const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
       const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ 
-        color: 0xffffff, transparent: true, opacity: 0.8, linewidth: 2 
+        color: 0xffffff, transparent: true, opacity: 0.6 
       }));
       grupoBordas.add(line);
     }
   }
-
-  scene.add(grupoMapa);
-  scene.add(grupoBordas);
 }
 
 // ============================================================
-// CASA 3D
+// CASAS 3D
 // ============================================================
 function criarCasa(fotoURL, usuario, nome) {
   const grupo = new THREE.Group();
 
   const base = new THREE.Mesh(
     new THREE.BoxGeometry(1.3, 1, 1.3),
-    new THREE.MeshStandardMaterial({ color: 0xf5f5dc, roughness: 0.8 })
+    new THREE.MeshStandardMaterial({ color: 0xf5f5dc })
   );
   base.position.y = 0.5;
   base.castShadow = base.receiveShadow = true;
@@ -179,13 +206,6 @@ function criarCasa(fotoURL, usuario, nome) {
   telhado.rotation.y = Math.PI / 4;
   telhado.castShadow = true;
   grupo.add(telhado);
-
-  const porta = new THREE.Mesh(
-    new THREE.BoxGeometry(0.32, 0.6, 0.05),
-    new THREE.MeshStandardMaterial({ color: 0x78350f })
-  );
-  porta.position.set(0, 0.3, 0.66);
-  grupo.add(porta);
 
   let placaMat;
   if (fotoURL) {
@@ -208,13 +228,6 @@ function criarCasa(fotoURL, usuario, nome) {
   placa.position.set(0, 1.05, 0.66);
   grupo.add(placa);
 
-  const mastro = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.025, 0.025, 0.9),
-    new THREE.MeshStandardMaterial({ color: 0x444 })
-  );
-  mastro.position.y = 2.3;
-  grupo.add(mastro);
-
   const bandeira = new THREE.Mesh(
     new THREE.PlaneGeometry(0.4, 0.25),
     new THREE.MeshStandardMaterial({ color: 0x22c55e, side: THREE.DoubleSide })
@@ -228,152 +241,73 @@ function criarCasa(fotoURL, usuario, nome) {
 }
 
 // ============================================================
-// BARCO REALISTA 3D
+// BARCO (GLB com Fallback)
 // ============================================================
-function criarBarco() {
-  const barco = new THREE.Group();
-  
-  const matMadeira = new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.8, metalness: 0.1 });
-  const matMadeiraEscura = new THREE.MeshStandardMaterial({ color: 0x3e2723, roughness: 0.9 });
-  const matVelas = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.9, side: THREE.DoubleSide });
-  const matDetalhes = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.6, roughness: 0.4 }); // Dourado
+let barco;
+async function criarBarco() {
+  return new Promise((resolve) => {
+    const loader = new GLTFLoader();
+    // Modelo de barco realista hospedado no GitHub do Three.js
+    const urlBarco = 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Sailboat.glb';
 
-  // 1. Casco Principal (Formato de V)
-  const cascoGeo = new THREE.BoxGeometry(3.6, 0.8, 1.4);
-  const posAttr = cascoGeo.attributes.position;
-  for (let i = 0; i < posAttr.count; i++) {
-    const y = posAttr.getY(i);
-    if (y < 0) {
-      // Afina a parte de baixo do casco (formato de quilha)
-      posAttr.setX(i, posAttr.getX(i) * 0.7);
-      posAttr.setZ(i, posAttr.getZ(i) * 0.4);
-    }
-    // Levanta a proa (frente) e popa (trás)
-    const x = posAttr.getX(i);
-    if (x > 1.5) posAttr.setY(i, y + 0.4); // Proa
-    if (x < -1.5) posAttr.setY(i, y + 0.2); // Popa
-  }
-  cascoGeo.computeVertexNormals();
-  const casco = new THREE.Mesh(cascoGeo, matMadeira);
-  casco.position.y = 0.3;
-  casco.castShadow = true;
-  casco.receiveShadow = true;
-  barco.add(casco);
+    loader.load(urlBarco, (gltf) => {
+      barco = gltf.scene;
+      barco.scale.set(1.5, 1.5, 1.5); // Ajusta o tamanho
+      barco.position.set(24, 0, 5);
+      barco.rotation.y = -0.5;
+      
+      // Corrige sombras do modelo
+      barco.traverse(c => { 
+        if(c.isMesh) { c.castShadow = true; c.receiveShadow = true; } 
+      });
 
-  // 2. Convés (Deck)
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.1, 1.2), matMadeiraEscura);
-  deck.position.y = 0.75;
-  barco.add(deck);
+      barco.userData = { passageiros: [] };
+      
+      // Bandeira procedural em cima do barco
+      const bandeira = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.5, 1),
+        new THREE.MeshStandardMaterial({ color: 0x22c55e, side: THREE.DoubleSide })
+      );
+      bandeira.position.set(0, 4, 0);
+      bandeira.userData.bandeira = true;
+      barco.add(bandeira);
 
-  // 3. Cabine (Cabana de Madeira)
-  const cabine = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.9, 0.9), matMadeira);
-  cabine.position.set(-0.8, 1.25, 0);
-  cabine.castShadow = true;
-  barco.add(cabine);
+      // Placa
+      const placa = criarPlacaBarco();
+      placa.position.set(0, 1.5, 1.5);
+      barco.add(placa);
 
-  // Telhado da Cabine
-  const telhadoCabine = new THREE.Mesh(new THREE.ConeGeometry(0.9, 0.5, 4), matMadeiraEscura);
-  telhadoCabine.position.set(-0.8, 1.95, 0);
-  telhadoCabine.rotation.y = Math.PI / 4;
-  barco.add(telhadoCabine);
+      resolve(barco);
+    }, undefined, () => {
+      // Fallback: se o GitHub falhar, cria um barco simples
+      console.warn("Falha ao carregar GLB, usando fallback.");
+      barco = new THREE.Group();
+      const casco = new THREE.Mesh(new THREE.BoxGeometry(3, 0.6, 1.6), new THREE.MeshStandardMaterial({color: 0x8b4513}));
+      casco.position.y = 0.3; barco.add(casco);
+      const placa = criarPlacaBarco();
+      placa.position.set(0, 1.6, 0);
+      barco.add(placa);
+      barco.position.set(24, 0, 5);
+      barco.userData = { passageiros: [] };
+      resolve(barco);
+    });
+  });
+}
 
-  // Janelas da Cabine
-  for (let i = -1; i <= 1; i += 2) {
-    const janela = new THREE.Mesh(
-      new THREE.BoxGeometry(0.2, 0.3, 0.05),
-      new THREE.MeshBasicMaterial({ color: 0x87ceeb })
-    );
-    janela.position.set(-0.8 + i * 0.3, 1.3, 0.46);
-    barco.add(janela);
-  }
-
-  // 4. Mastro Principal
-  const mastro = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 3.5), matMadeiraEscura);
-  mastro.position.set(0.5, 2.4, 0);
-  mastro.castShadow = true;
-  barco.add(mastro);
-
-  // 5. Velas
-  // Vela Grande
-  const velaGeo = new THREE.PlaneGeometry(1.8, 2.2);
-  const vela = new THREE.Mesh(velaGeo, matVelas);
-  vela.position.set(0.5, 2.5, -0.05);
-  vela.rotation.y = Math.PI / 2;
-  vela.castShadow = true;
-  barco.add(vela);
-
-  // Vela da Proa (Estai)
-  const velaProaGeo = new THREE.PlaneGeometry(1.0, 1.8);
-  const velaProa = new THREE.Mesh(velaProaGeo, matVelas);
-  velaProa.position.set(1.6, 2.0, -0.05);
-  velaProa.rotation.y = Math.PI / 2;
-  velaProa.rotation.z = -0.3;
-  barco.add(velaProa);
-
-  // 6. Cordas (Cabo do mastro até a proa e popa)
-  const criaCorda = (x1, y1, z1, x2, y2, z2) => {
-    const pontos = [new THREE.Vector3(x1, y1, z1), new THREE.Vector3(x2, y2, z2)];
-    const geo = new THREE.BufferGeometry().setFromPoints(pontos);
-    const linha = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x222222 }));
-    barco.add(linha);
-  };
-  criaCorda(0.5, 4.1, 0, 1.8, 1.0, 0); // Mastro à Proa
-  criaCorda(0.5, 4.1, 0, -1.4, 1.0, 0); // Mastro à Popa
-  criaCorda(0.5, 4.1, 0, 0.5, 1.0, 0.6); // Mastro à Lateral Dir
-  criaCorda(0.5, 4.1, 0, 0.5, 1.0, -0.6); // Mastro à Lateral Esq
-
-  // 7. Detalhes Finais (Bandeira do Brasil no topo)
-  const bandeiraTex = new THREE.CanvasTexture(gerarBandeiraBrasil());
-  const bandeira = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.6, 0.4),
-    new THREE.MeshBasicMaterial({ map: bandeiraTex, side: THREE.DoubleSide })
-  );
-  bandeira.position.set(0.5, 4.2, 0.3);
-  bandeira.userData.bandeira = true;
-  barco.add(bandeira);
-
-  // 8. Placa "POSSÍVEIS MORADORES"
+function criarPlacaBarco() {
   const canvas = document.createElement('canvas');
   canvas.width = 512; canvas.height = 128;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#0a0e1a';
-  ctx.fillRect(0, 0, 512, 128);
-  ctx.strokeStyle = '#d4af37'; ctx.lineWidth = 6;
-  ctx.strokeRect(6, 6, 500, 116);
-  ctx.fillStyle = '#22c55e';
-  ctx.font = 'bold 34px sans-serif';
-  ctx.textAlign = 'center';
+  ctx.fillStyle = '#0a0e1a'; ctx.fillRect(0, 0, 512, 128);
+  ctx.strokeStyle = '#d4af37'; ctx.lineWidth = 6; ctx.strokeRect(6, 6, 500, 116);
+  ctx.fillStyle = '#22c55e'; ctx.font = 'bold 34px sans-serif'; ctx.textAlign = 'center';
   ctx.fillText('POSSÍVEIS MORADORES', 256, 55);
-  ctx.font = '18px sans-serif';
-  ctx.fillStyle = '#94a3b8';
+  ctx.font = '18px sans-serif'; ctx.fillStyle = '#94a3b8';
   ctx.fillText('aguardando comentário...', 256, 90);
-
-  const placa = new THREE.Mesh(
-    new THREE.PlaneGeometry(2.5, 0.6),
+  return new THREE.Mesh(
+    new THREE.PlaneGeometry(3, 0.75),
     new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), side: THREE.DoubleSide })
   );
-  placa.position.set(0, 1.15, 0.65);
-  barco.add(placa);
-
-  // Posição inicial no oceano
-  barco.position.set(24, 0, 5);
-  barco.rotation.y = -0.2; // Deixa o barco levemente de lado para a câmera ver melhor
-  barco.userData = { passageiros: [] };
-  
-  return barco;
-}
-
-// Função auxiliar para desenhar a bandeira no canvas
-function gerarBandeiraBrasil() {
-  const c = document.createElement('canvas');
-  c.width = 128; c.height = 86;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#009c3b'; ctx.fillRect(0, 0, 128, 86); // Verde
-  ctx.fillStyle = '#ffdf00';
-  ctx.beginPath(); ctx.moveTo(64, 8); ctx.lineTo(118, 43); ctx.lineTo(64, 78); ctx.lineTo(10, 43); ctx.closePath(); ctx.fill(); // Losango
-  ctx.fillStyle = '#002776';
-  ctx.beginPath(); ctx.arc(64, 43, 18, 0, Math.PI * 2); ctx.fill(); // Círculo
-  return c;
 }
 
 // ============================================================
@@ -382,10 +316,9 @@ function gerarBandeiraBrasil() {
 let vozAtivada = false;
 let vozesDisponiveis = [];
 
-function carregarVozes() { vozesDisponiveis = speechSynthesis.getVoices(); }
 if ('speechSynthesis' in window) {
-  carregarVozes();
-  speechSynthesis.onvoiceschanged = carregarVozes;
+  vozesDisponiveis = speechSynthesis.getVoices();
+  speechSynthesis.onvoiceschanged = () => vozesDisponiveis = speechSynthesis.getVoices();
 }
 
 const btnVoz = document.getElementById('btnVoz');
@@ -400,17 +333,14 @@ function falar(texto) {
   if (!vozAtivada || !('speechSynthesis' in window)) return;
   speechSynthesis.cancel();
   const utt = new SpeechSynthesisUtterance(texto);
-  utt.lang = 'pt-BR';
-  utt.rate = 1.0;
-  utt.pitch = 1.1;
-  const vozBR = vozesDisponiveis.find(v => v.lang === 'pt-BR')
-              || vozesDisponiveis.find(v => v.lang.startsWith('pt'));
+  utt.lang = 'pt-BR'; utt.rate = 1.0; utt.pitch = 1.1;
+  const vozBR = vozesDisponiveis.find(v => v.lang === 'pt-BR') || vozesDisponiveis.find(v => v.lang.startsWith('pt'));
   if (vozBR) utt.voice = vozBR;
   speechSynthesis.speak(utt);
 }
 
 // ============================================================
-// CÂMERA ANIMADA
+// CÂMERA E ANIMAÇÕES
 // ============================================================
 let camAnim = null;
 function voarPara(alvo, duracao = 2000, offset = new THREE.Vector3(0, 9, 11)) {
@@ -418,6 +348,7 @@ function voarPara(alvo, duracao = 2000, offset = new THREE.Vector3(0, 9, 11)) {
   const startTarget = controls.target.clone();
   const destino = alvo.clone().add(offset);
   const inicio = performance.now();
+  
   camAnim = () => {
     const t = Math.min((performance.now() - inicio) / duracao, 1);
     const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
@@ -429,13 +360,12 @@ function voarPara(alvo, duracao = 2000, offset = new THREE.Vector3(0, 9, 11)) {
 }
 
 // ============================================================
-// MORADORES (Leitura do JSON)
+// MORADORES
 // ============================================================
-let barco;
 const casas = [];
 
 async function carregarMoradores() {
-  barco = criarBarco();
+  barco = await criarBarco();
   scene.add(barco);
 
   try {
@@ -483,17 +413,16 @@ function adicionarCasa(m) {
 function adicionarAoBarco(m) {
   const idx = barco.userData.passageiros.length;
   
-  // Avatar do seguidor
   const avatar = new THREE.Mesh(
     new THREE.SphereGeometry(0.22, 16, 16),
     new THREE.MeshStandardMaterial({ color: 0x22c55e })
   );
   
-  // Organiza os avatares no convés do barco
+  // Posiciona no convés do barco
   avatar.position.set(
     -1.0 + (idx % 4) * 0.6,
-    0.95 + Math.floor(idx / 4) * 0.45,
-    0
+    1.0 + Math.floor(idx / 4) * 0.45,
+    0.2
   );
   barco.add(avatar);
 
@@ -501,11 +430,8 @@ function adicionarAoBarco(m) {
   const canvas = document.createElement('canvas');
   canvas.width = 256; canvas.height = 64;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = 'rgba(0,0,0,0.85)';
-  ctx.fillRect(4, 4, 248, 56);
-  ctx.fillStyle = '#4ade80';
-  ctx.font = 'bold 20px sans-serif';
-  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(4, 4, 248, 56);
+  ctx.fillStyle = '#4ade80'; ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'center';
   ctx.fillText(m.usuario, 128, 38);
 
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -520,18 +446,17 @@ function adicionarAoBarco(m) {
 
 function atualizarStats() {
   document.getElementById('totalCasas').textContent = `${casas.length} casas`;
-  document.getElementById('totalBarco').textContent =
-    `${barco?.userData.passageiros.length || 0} no barco`;
+  document.getElementById('totalBarco').textContent = `${barco?.userData.passageiros.length || 0} no barco`;
 }
 
 // ============================================================
-// BOTÕES DE REGIÃO
+// BOTÕES DE NAVEGAÇÃO (REGIÕES)
 // ============================================================
 document.querySelectorAll('#legenda button').forEach(btn => {
   btn.addEventListener('click', () => {
     const regiao = btn.dataset.regiao;
     if (regiao === 'BRASIL') {
-      voarPara(new THREE.Vector3(0, 1.5, 0), 1800, new THREE.Vector3(0, 22, 32));
+      voarPara(new THREE.Vector3(0, 1.5, 0), 1800, new THREE.Vector3(0, 25, 35));
       return;
     }
     const cfg = REGIOES[regiao];
@@ -542,7 +467,7 @@ document.querySelectorAll('#legenda button').forEach(btn => {
 });
 
 // ============================================================
-// TOOLTIP
+// INTERAÇÃO: CLIQUE NO ESTADO + TOOLTIP
 // ============================================================
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
@@ -551,12 +476,16 @@ tooltipEl.className = 'tooltip';
 tooltipEl.style.display = 'none';
 document.body.appendChild(tooltipEl);
 
-addEventListener('mousemove', e => {
+function getIntersects(e, objects) {
   mouse.x = (e.clientX / innerWidth) * 2 - 1;
   mouse.y = -(e.clientY / innerHeight) * 2 + 1;
   raycaster.setFromCamera(mouse, camera);
-  const hits = raycaster.intersectObjects(casas, true);
+  return raycaster.intersectObjects(objects, true);
+}
 
+// Hover (Mouse)
+addEventListener('mousemove', e => {
+  const hits = getIntersects(e, casas);
   if (hits.length > 0) {
     let obj = hits[0].object;
     while (obj.parent && !obj.userData.usuario) obj = obj.parent;
@@ -565,40 +494,72 @@ addEventListener('mousemove', e => {
       tooltipEl.style.left = e.clientX + 'px';
       tooltipEl.style.top = e.clientY + 'px';
       tooltipEl.style.display = 'block';
+      document.body.style.cursor = 'pointer';
       return;
     }
   }
-  tooltipEl.style.display = 'none';
+  
+  // Verifica se está em cima de um estado
+  const hitsEstado = getIntersects(e, estadosClique);
+  if (hitsEstado.length > 0) {
+    const uf = hitsEstado[0].object.userData.uf;
+    tooltipEl.innerHTML = `<strong>${uf}</strong> · Clique para explorar`;
+    tooltipEl.style.left = e.clientX + 'px';
+    tooltipEl.style.top = e.clientY + 'px';
+    tooltipEl.style.display = 'block';
+    document.body.style.cursor = 'pointer';
+  } else {
+    tooltipEl.style.display = 'none';
+    document.body.style.cursor = 'default';
+  }
+});
+
+// Clique (Voa para o estado)
+addEventListener('click', e => {
+  const hitsEstado = getIntersects(e, estadosClique);
+  if (hitsEstado.length > 0) {
+    const meshClicado = hitsEstado[0].object;
+    
+    // Calcula o centro exato do estado clicado
+    meshClicado.geometry.computeBoundingBox();
+    const centro = new THREE.Vector3();
+    meshClicado.geometry.boundingBox.getCenter(centro);
+    
+    // Converte para a posição global
+    const posGlobal = meshClicado.localToWorld(centro);
+    posGlobal.y = 1.5;
+    
+    // Voa para lá (offset mais próximo para poder orbitar)
+    voarPara(posGlobal, 1500, new THREE.Vector3(0, 6, 8));
+    
+    const uf = meshClicado.userData.uf;
+    if (vozAtivada) setTimeout(() => falar(`Explorando o estado ${uf}`), 200);
+  }
 });
 
 // ============================================================
 // LOOP DE ANIMAÇÃO
 // ============================================================
 const clock = new THREE.Clock();
+
 function animar() {
   requestAnimationFrame(animar);
   const t = clock.getElapsedTime();
 
-  // Ondas do oceano
-  const pos = ocean.geometry.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const x = oceanOrig[i * 3], y = oceanOrig[i * 3 + 1];
-    pos.array[i * 3 + 2] = Math.sin(x * 0.25 + t) * 0.3 + Math.cos(y * 0.25 + t * 0.8) * 0.2;
-  }
-  pos.needsUpdate = true;
-  ocean.geometry.computeVertexNormals();
+  // Animação do Mar Realista
+  water.material.uniforms['time'].value += 0.5 / 60.0;
 
   // Balanço do barco
   if (barco) {
-    barco.position.y = Math.sin(t * 1.1) * 0.15;
-    barco.rotation.z = Math.sin(t * 0.9) * 0.04;
-    // Gira levemente a bandeira
+    barco.position.y = Math.sin(t * 1.5) * 0.3 - 0.5; // Ajusta para o mar
+    barco.rotation.z = Math.sin(t * 1.0) * 0.05;
+    barco.rotation.x = Math.cos(t * 0.8) * 0.03;
+    
     barco.children.forEach(ch => {
       if (ch.userData.bandeira) ch.rotation.y = Math.sin(t * 3) * 0.3;
     });
   }
 
-  // Bandeiras das casas
   casas.forEach(c => c.children.forEach(ch => {
     if (ch.userData.bandeira) ch.rotation.y = Math.sin(t * 3 + c.position.x) * 0.35;
   }));
@@ -622,7 +583,6 @@ addEventListener('resize', () => {
     await carregarEstados();
   } catch (e) {
     console.error('Erro ao carregar estados:', e);
-    alert('Erro ao carregar o mapa. Verifique se data/estados.geojson existe.');
   }
   await carregarMoradores();
   document.getElementById('loading').classList.add('hide');
@@ -630,6 +590,6 @@ addEventListener('resize', () => {
 
   camera.position.set(35, 30, 45);
   setTimeout(() => {
-    voarPara(new THREE.Vector3(0, 1.5, 0), 2500, new THREE.Vector3(0, 22, 32));
+    voarPara(new THREE.Vector3(0, 1.5, 0), 2500, new THREE.Vector3(0, 25, 35));
   }, 200);
 })();
