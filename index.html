@@ -1,1 +1,56 @@
 
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Mapa 3D interativo da comunidade brasileira" />
+  <title>🇧🇷 Brasil 3D — Comunidade</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- HUD superior -->
+  <div id="hud">
+    <h1>🇧🇷 Brasil 3D</h1>
+    <p>Siga <strong>@seu_instagram</strong> e comente sua região!</p>
+    <div id="stats">
+      <span id="totalCasas">0 casas</span> ·
+      <span id="totalBarco">0 no barco</span>
+    </div>
+  </div>
+
+  <!-- Botão de voz (resolve bloqueio dos navegadores) -->
+  <button id="btnVoz" class="btn-float" title="Ativar voz">🔊 Ativar Voz</button>
+
+  <!-- Link do admin -->
+  <a href="admin.html" id="btnAdmin" class="btn-float" title="Painel Admin">⚙️</a>
+
+  <!-- Legenda de regiões -->
+  <div id="legenda">
+    <button data-regiao="Norte">Norte</button>
+    <button data-regiao="Nordeste">Nordeste</button>
+    <button data-regiao="Centro-Oeste">Centro-Oeste</button>
+    <button data-regiao="Sudeste">Sudeste</button>
+    <button data-regiao="Sul">Sul</button>
+    <button data-regiao="BRASIL" class="btn-brasil">🇧🇷 Brasil</button>
+  </div>
+
+  <!-- Loading -->
+  <div id="loading">
+    <div class="spinner"></div>
+    <p>Carregando Brasil 3D...</p>
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
