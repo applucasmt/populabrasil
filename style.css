@@ -2,9 +2,9 @@
 html, body {
   width: 100%; height: 100%; overflow: hidden;
   font-family: 'Segoe UI', system-ui, sans-serif;
-  background: #0a0e1a;
+  background: transparent;
 }
-#app { position: fixed; inset: 0; }
+#app { position: fixed; inset: 0; z-index: 0; }
 
 #hud {
   position: fixed; top: 20px; left: 20px; z-index: 10;
@@ -77,3 +77,6 @@ html, body {
   box-shadow: 0 4px 16px rgba(0,0,0,0.5);
 }
 .tooltip strong { color: #4ade80; }
+
+/* Cursor de clique nos estados */
+.pointer { cursor: pointer; }
