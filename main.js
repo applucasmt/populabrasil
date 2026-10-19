@@ -34,7 +34,7 @@ const CORES_UF = {
 };
 
 // ============================================================
-// CENA
+// CENA / RENDERER / CONTROLES
 // ============================================================
 const app = document.getElementById('app');
 const scene = new THREE.Scene();
@@ -115,7 +115,6 @@ async function carregarEstados() {
         else shape.lineTo(p.x, -p.z);
       });
 
-      // Adiciona buracos (se houver)
       for (const hole of buracos) {
         const path = new THREE.Path();
         hole.forEach(([lon, lat], i) => {
@@ -126,7 +125,7 @@ async function carregarEstados() {
         shape.holes.push(path);
       }
 
-      // 1. Mesh 3D do Estado
+      // Mesh 3D
       const geo3D = new THREE.ExtrudeGeometry(shape, { depth: 0.6, bevelEnabled: false });
       geo3D.rotateX(-Math.PI / 2);
       
@@ -137,11 +136,9 @@ async function carregarEstados() {
       mesh.receiveShadow = true;
       grupoMapa.add(mesh);
 
-      // 2. Linhas Perfeitas (ShapeGeometry plano no topo)
+      // Fronteiras (Linhas)
       const geoLinha = new THREE.ShapeGeometry(shape);
       geoLinha.rotateX(-Math.PI / 2);
-      
-      // Pega os vértices e converte para linha
       const pos = geoLinha.attributes.position;
       const points = [];
       for (let i = 0; i < pos.count; i++) {
@@ -231,26 +228,118 @@ function criarCasa(fotoURL, usuario, nome) {
 }
 
 // ============================================================
-// BARCO
+// BARCO REALISTA 3D
 // ============================================================
 function criarBarco() {
   const barco = new THREE.Group();
+  
+  const matMadeira = new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.8, metalness: 0.1 });
+  const matMadeiraEscura = new THREE.MeshStandardMaterial({ color: 0x3e2723, roughness: 0.9 });
+  const matVelas = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.9, side: THREE.DoubleSide });
+  const matDetalhes = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.6, roughness: 0.4 }); // Dourado
 
-  const casco = new THREE.Mesh(
-    new THREE.BoxGeometry(3, 0.6, 1.6),
-    new THREE.MeshStandardMaterial({ color: 0x8b4513 })
-  );
+  // 1. Casco Principal (Formato de V)
+  const cascoGeo = new THREE.BoxGeometry(3.6, 0.8, 1.4);
+  const posAttr = cascoGeo.attributes.position;
+  for (let i = 0; i < posAttr.count; i++) {
+    const y = posAttr.getY(i);
+    if (y < 0) {
+      // Afina a parte de baixo do casco (formato de quilha)
+      posAttr.setX(i, posAttr.getX(i) * 0.7);
+      posAttr.setZ(i, posAttr.getZ(i) * 0.4);
+    }
+    // Levanta a proa (frente) e popa (trás)
+    const x = posAttr.getX(i);
+    if (x > 1.5) posAttr.setY(i, y + 0.4); // Proa
+    if (x < -1.5) posAttr.setY(i, y + 0.2); // Popa
+  }
+  cascoGeo.computeVertexNormals();
+  const casco = new THREE.Mesh(cascoGeo, matMadeira);
   casco.position.y = 0.3;
   casco.castShadow = true;
+  casco.receiveShadow = true;
   barco.add(casco);
 
+  // 2. Convés (Deck)
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.1, 1.2), matMadeiraEscura);
+  deck.position.y = 0.75;
+  barco.add(deck);
+
+  // 3. Cabine (Cabana de Madeira)
+  const cabine = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.9, 0.9), matMadeira);
+  cabine.position.set(-0.8, 1.25, 0);
+  cabine.castShadow = true;
+  barco.add(cabine);
+
+  // Telhado da Cabine
+  const telhadoCabine = new THREE.Mesh(new THREE.ConeGeometry(0.9, 0.5, 4), matMadeiraEscura);
+  telhadoCabine.position.set(-0.8, 1.95, 0);
+  telhadoCabine.rotation.y = Math.PI / 4;
+  barco.add(telhadoCabine);
+
+  // Janelas da Cabine
+  for (let i = -1; i <= 1; i += 2) {
+    const janela = new THREE.Mesh(
+      new THREE.BoxGeometry(0.2, 0.3, 0.05),
+      new THREE.MeshBasicMaterial({ color: 0x87ceeb })
+    );
+    janela.position.set(-0.8 + i * 0.3, 1.3, 0.46);
+    barco.add(janela);
+  }
+
+  // 4. Mastro Principal
+  const mastro = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 3.5), matMadeiraEscura);
+  mastro.position.set(0.5, 2.4, 0);
+  mastro.castShadow = true;
+  barco.add(mastro);
+
+  // 5. Velas
+  // Vela Grande
+  const velaGeo = new THREE.PlaneGeometry(1.8, 2.2);
+  const vela = new THREE.Mesh(velaGeo, matVelas);
+  vela.position.set(0.5, 2.5, -0.05);
+  vela.rotation.y = Math.PI / 2;
+  vela.castShadow = true;
+  barco.add(vela);
+
+  // Vela da Proa (Estai)
+  const velaProaGeo = new THREE.PlaneGeometry(1.0, 1.8);
+  const velaProa = new THREE.Mesh(velaProaGeo, matVelas);
+  velaProa.position.set(1.6, 2.0, -0.05);
+  velaProa.rotation.y = Math.PI / 2;
+  velaProa.rotation.z = -0.3;
+  barco.add(velaProa);
+
+  // 6. Cordas (Cabo do mastro até a proa e popa)
+  const criaCorda = (x1, y1, z1, x2, y2, z2) => {
+    const pontos = [new THREE.Vector3(x1, y1, z1), new THREE.Vector3(x2, y2, z2)];
+    const geo = new THREE.BufferGeometry().setFromPoints(pontos);
+    const linha = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x222222 }));
+    barco.add(linha);
+  };
+  criaCorda(0.5, 4.1, 0, 1.8, 1.0, 0); // Mastro à Proa
+  criaCorda(0.5, 4.1, 0, -1.4, 1.0, 0); // Mastro à Popa
+  criaCorda(0.5, 4.1, 0, 0.5, 1.0, 0.6); // Mastro à Lateral Dir
+  criaCorda(0.5, 4.1, 0, 0.5, 1.0, -0.6); // Mastro à Lateral Esq
+
+  // 7. Detalhes Finais (Bandeira do Brasil no topo)
+  const bandeiraTex = new THREE.CanvasTexture(gerarBandeiraBrasil());
+  const bandeira = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.6, 0.4),
+    new THREE.MeshBasicMaterial({ map: bandeiraTex, side: THREE.DoubleSide })
+  );
+  bandeira.position.set(0.5, 4.2, 0.3);
+  bandeira.userData.bandeira = true;
+  barco.add(bandeira);
+
+  // 8. Placa "POSSÍVEIS MORADORES"
   const canvas = document.createElement('canvas');
   canvas.width = 512; canvas.height = 128;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#0a0e1a';
   ctx.fillRect(0, 0, 512, 128);
-  ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 4;
-  ctx.strokeRect(4, 4, 504, 120);
+  ctx.strokeStyle = '#d4af37'; ctx.lineWidth = 6;
+  ctx.strokeRect(6, 6, 500, 116);
   ctx.fillStyle = '#22c55e';
   ctx.font = 'bold 34px sans-serif';
   ctx.textAlign = 'center';
@@ -260,26 +349,35 @@ function criarBarco() {
   ctx.fillText('aguardando comentário...', 256, 90);
 
   const placa = new THREE.Mesh(
-    new THREE.PlaneGeometry(4, 1),
+    new THREE.PlaneGeometry(2.5, 0.6),
     new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), side: THREE.DoubleSide })
   );
-  placa.position.set(0, 1.6, 0);
+  placa.position.set(0, 1.15, 0.65);
   barco.add(placa);
 
-  const mastro = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.05, 0.05, 1.6),
-    new THREE.MeshStandardMaterial({ color: 0x333 })
-  );
-  mastro.position.set(-1.8, 0.8, 0);
-  barco.add(mastro);
-
-  barco.position.set(22, 0, 5);
+  // Posição inicial no oceano
+  barco.position.set(24, 0, 5);
+  barco.rotation.y = -0.2; // Deixa o barco levemente de lado para a câmera ver melhor
   barco.userData = { passageiros: [] };
+  
   return barco;
 }
 
+// Função auxiliar para desenhar a bandeira no canvas
+function gerarBandeiraBrasil() {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 86;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#009c3b'; ctx.fillRect(0, 0, 128, 86); // Verde
+  ctx.fillStyle = '#ffdf00';
+  ctx.beginPath(); ctx.moveTo(64, 8); ctx.lineTo(118, 43); ctx.lineTo(64, 78); ctx.lineTo(10, 43); ctx.closePath(); ctx.fill(); // Losango
+  ctx.fillStyle = '#002776';
+  ctx.beginPath(); ctx.arc(64, 43, 18, 0, Math.PI * 2); ctx.fill(); // Círculo
+  return c;
+}
+
 // ============================================================
-// VOZ
+// VOZ (TTS)
 // ============================================================
 let vozAtivada = false;
 let vozesDisponiveis = [];
@@ -331,7 +429,7 @@ function voarPara(alvo, duracao = 2000, offset = new THREE.Vector3(0, 9, 11)) {
 }
 
 // ============================================================
-// MORADORES (Apenas leitura do JSON)
+// MORADORES (Leitura do JSON)
 // ============================================================
 let barco;
 const casas = [];
@@ -384,17 +482,22 @@ function adicionarCasa(m) {
 
 function adicionarAoBarco(m) {
   const idx = barco.userData.passageiros.length;
+  
+  // Avatar do seguidor
   const avatar = new THREE.Mesh(
-    new THREE.SphereGeometry(0.28, 16, 16),
+    new THREE.SphereGeometry(0.22, 16, 16),
     new THREE.MeshStandardMaterial({ color: 0x22c55e })
   );
+  
+  // Organiza os avatares no convés do barco
   avatar.position.set(
-    -1.2 + (idx % 5) * 0.6,
-    0.95 + Math.floor(idx / 5) * 0.55,
-    0.4
+    -1.0 + (idx % 4) * 0.6,
+    0.95 + Math.floor(idx / 4) * 0.45,
+    0
   );
   barco.add(avatar);
 
+  // Plaquinha com o nome (@)
   const canvas = document.createElement('canvas');
   canvas.width = 256; canvas.height = 64;
   const ctx = canvas.getContext('2d');
@@ -408,8 +511,8 @@ function adicionarAoBarco(m) {
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
     map: new THREE.CanvasTexture(canvas), depthTest: false
   }));
-  sprite.scale.set(1.6, 0.4, 1);
-  sprite.position.copy(avatar.position).add(new THREE.Vector3(0, 0.55, 0));
+  sprite.scale.set(1.4, 0.35, 1);
+  sprite.position.copy(avatar.position).add(new THREE.Vector3(0, 0.45, 0));
   barco.add(sprite);
 
   barco.userData.passageiros.push(m);
@@ -469,13 +572,14 @@ addEventListener('mousemove', e => {
 });
 
 // ============================================================
-// LOOP
+// LOOP DE ANIMAÇÃO
 // ============================================================
 const clock = new THREE.Clock();
 function animar() {
   requestAnimationFrame(animar);
   const t = clock.getElapsedTime();
 
+  // Ondas do oceano
   const pos = ocean.geometry.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const x = oceanOrig[i * 3], y = oceanOrig[i * 3 + 1];
@@ -484,11 +588,17 @@ function animar() {
   pos.needsUpdate = true;
   ocean.geometry.computeVertexNormals();
 
+  // Balanço do barco
   if (barco) {
     barco.position.y = Math.sin(t * 1.1) * 0.15;
     barco.rotation.z = Math.sin(t * 0.9) * 0.04;
+    // Gira levemente a bandeira
+    barco.children.forEach(ch => {
+      if (ch.userData.bandeira) ch.rotation.y = Math.sin(t * 3) * 0.3;
+    });
   }
 
+  // Bandeiras das casas
   casas.forEach(c => c.children.forEach(ch => {
     if (ch.userData.bandeira) ch.rotation.y = Math.sin(t * 3 + c.position.x) * 0.35;
   }));
@@ -505,7 +615,7 @@ addEventListener('resize', () => {
 });
 
 // ============================================================
-// INIT
+// INICIALIZAÇÃO
 // ============================================================
 (async () => {
   try {
