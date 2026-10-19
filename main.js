@@ -4,14 +4,16 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { Water } from 'three/addons/objects/Water.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-import Peer from 'peerjs';
+
+// Correção: PeerJS carregado via CDN no HTML, acessível pelo window
+const Peer = window.Peer; 
 
 // ============================================================
 // CONFIGURAÇÕES BASE E MAPA
 // ============================================================
 const LAT_MIN = -34, LAT_MAX = 6, LON_MIN = -74, LON_MAX = -34;
 const SCALE_X = 30 / (LON_MAX - LON_MIN), SCALE_Z = 30 / (LAT_MAX - LAT_MIN);
-const COR_VERDE = 0x2e7d32; // Cor única do Brasil (Verde)
+const COR_VERDE = 0x2e7d32;
 
 function latLonParaCena(lat, lon) {
   const x = (lon - LON_MIN) * SCALE_X - 15;
@@ -94,7 +96,6 @@ async function carregarEstados() {
         else shape.lineTo(p.x, -p.z);
       });
 
-      // 1. Mesh do estado (Verde)
       const geoBase = new THREE.ShapeGeometry(shape);
       geoBase.rotateX(-Math.PI / 2);
       const mesh = new THREE.Mesh(geoBase, new THREE.MeshStandardMaterial({ color: COR_VERDE, roughness: 0.6 }));
@@ -104,7 +105,6 @@ async function carregarEstados() {
       scene.add(mesh);
       estadosClique.push(mesh);
 
-      // 2. Linhas Brancas PERFEITAS (Apenas o contorno externo)
       const pontosContorno = outer.map(([lon, lat]) => {
         const p = latLonParaCena(lat, lon);
         return new THREE.Vector3(p.x, 1.02, -p.z);
@@ -132,7 +132,6 @@ async function criarBarco() {
       barco.rotation.y = -0.6;
       barco.traverse(c => { if(c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
       
-      // CanvasTexture para permitir "Pixar" o navio
       barco.traverse(c => {
         if (c.isMesh && c.material) {
           const canvas = document.createElement('canvas');
@@ -168,36 +167,31 @@ function criarAvatar(corCamisa = '#3b82f6', corPele = '#ffcc99') {
   const div = document.createElement('div'); div.textContent = 'Você'; div.style.color = '#fff'; div.style.fontWeight = 'bold'; div.style.textShadow = '1px 1px 2px #000';
   const label = new CSS2DObject(div); label.position.set(0, 1.7, 0); meuAvatar.add(label);
 
-  meuAvatar.position.set(22, 1.5, 8); // No convés
+  meuAvatar.position.set(22, 1.5, 8);
   scene.add(meuAvatar);
 }
 
 // ============================================================
 // PEERJS: CHAT GLOBAL (SALA ÚNICA)
 // ============================================================
-// Usamos um ID de sala fixo para todos entrarem juntos
-const ROOM_ID = 'brasil3d-sala-global-v1';
-const peer = new Peer(ROOM_ID); 
+const ROOM_ID = 'brasil3d-sala-global-v2';
+let peer;
 const connections = [];
 
-peer.on('open', (id) => {
-  console.log('Conectado à sala:', id);
-});
-
-peer.on('connection', (conn) => {
-  connections.push(conn);
-  setupConnection(conn);
-});
-
-function setupConnection(conn) {
-  conn.on('data', (data) => {
-    if (data.type === 'chat') {
-      addChatMessage(data.user, data.text);
-    }
+if (Peer) {
+  peer = new Peer(ROOM_ID); 
+  
+  peer.on('open', (id) => console.log('Conectado à sala:', id));
+  peer.on('connection', (conn) => {
+    connections.push(conn);
+    conn.on('data', (data) => {
+      if (data.type === 'chat') addChatMessage(data.user, data.text);
+    });
   });
+} else {
+  console.error("PeerJS não carregou corretamente.");
 }
 
-// UI do Chat
 const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 
@@ -254,7 +248,6 @@ addEventListener('click', e => {
   }
 });
 
-// Botões de Ação
 document.getElementById('save-custom').addEventListener('click', () => {
   const corCamisa = document.getElementById('color-shirt').value;
   const corPele = document.getElementById('color-skin').value;
