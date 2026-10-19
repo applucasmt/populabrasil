@@ -42,6 +42,7 @@ const CORES_UF = {
 // ============================================================
 const app = document.getElementById('app');
 const scene = new THREE.Scene();
+// FOV inicial 45 (visão de mapa)
 const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 1000);
 camera.position.set(0, 30, 45);
 
@@ -245,14 +246,13 @@ async function criarBarco() {
           c.castShadow = true; 
           c.receiveShadow = true; 
           c.userData.isBarco = true; 
-          collidersBarco.push(c); // Adiciona aos objetos de colisão
+          collidersBarco.push(c); 
         } 
       });
       
       adicionarItensAoBarco();
       resolve(barco);
     }, undefined, () => {
-      // Fallback
       barco = new THREE.Group();
       const matMad = new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.8 });
       const matVel = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, side: THREE.DoubleSide });
@@ -261,11 +261,6 @@ async function criarBarco() {
       casco.position.y = 0.3; casco.castShadow = true; casco.userData.isBarco = true; barco.add(casco);
       collidersBarco.push(casco);
       
-      const proa = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.5, 4), matMad);
-      proa.rotation.z = -Math.PI / 2; proa.rotation.y = Math.PI / 4;
-      proa.position.set(1.8, 0.3, 0); proa.userData.isBarco = true; barco.add(proa);
-      collidersBarco.push(proa);
-
       const cabine = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.9), matMad);
       cabine.position.set(-0.8, 0.9, 0); cabine.userData.isBarco = true; barco.add(cabine);
       collidersBarco.push(cabine);
@@ -443,12 +438,10 @@ let modoPrimeiraPessoa = false;
 let modoSpray = false;
 let corSpray = '#ff0000';
 let estaPintando = false;
-let alturaCamera = 0; // Altura atual do chão
+let alturaCamera = 0; 
 
 const keys = { w: false, a: false, s: false, d: false };
 let yaw = 0, pitch = 0;
-const velocity = new THREE.Vector3();
-const direction = new THREE.Vector3();
 
 addEventListener('keydown', (e) => {
   if (!modoPrimeiraPessoa) return;
@@ -471,17 +464,15 @@ addEventListener('keyup', (e) => {
 addEventListener('mousemove', e => {
   if (modoPrimeiraPessoa) {
     if (modoSpray && estaPintando) {
-      const hits = getIntersects(e, collidersBarco); // Usa apenas os meshes do barco
+      const hits = getIntersects(e, collidersBarco); 
       if (hits.length > 0 && hits[0].object.isMesh) {
         const mesh = hits[0].object;
         const point = hits[0].point;
         
-        // Cria a mancha de tinta
         const splatGeo = new THREE.CircleGeometry(0.15, 8);
         const splatMat = new THREE.MeshBasicMaterial({ color: corSpray, side: THREE.DoubleSide });
         const splat = new THREE.Mesh(splatGeo, splatMat);
         
-        // Coloca a mancha dentro do grupo do barco para ela acompanhar o balanço
         barco.attach(splat);
         
         splat.position.copy(point);
@@ -491,11 +482,13 @@ addEventListener('mousemove', e => {
         splat.position.add(normal.multiplyScalar(0.01)); 
       }
     } else {
+      // Pointer Lock: Movimento absoluto do mouse
       yaw -= e.movementX * 0.002;
       pitch -= e.movementY * 0.002;
       pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
     }
   } else {
+    // Hover do mapa
     const hitsBarco = getIntersects(e, [barco]);
     if (hitsBarco.length > 0) {
       tooltipEl.innerHTML = `<strong>Navio Interativo</strong> · Clique para entrar`;
@@ -505,19 +498,6 @@ addEventListener('mousemove', e => {
       return;
     }
 
-    const hits = getIntersects(e, casas);
-    if (hits.length > 0) {
-      let obj = hits[0].object;
-      while (obj.parent && !obj.userData.usuario) obj = obj.parent;
-      if (obj.userData.usuario) {
-        tooltipEl.innerHTML = `<strong>${obj.userData.usuario}</strong> · ${obj.userData.nome}`;
-        tooltipEl.style.left = e.clientX + 'px'; tooltipEl.style.top = e.clientY + 'px';
-        tooltipEl.style.display = 'block';
-        document.body.style.cursor = 'pointer';
-        return;
-      }
-    }
-    
     const hitsEstado = getIntersects(e, estadosClique);
     if (hitsEstado.length > 0) {
       const uf = hitsEstado[0].object.userData.uf;
@@ -548,18 +528,23 @@ addEventListener('click', e => {
     modoPrimeiraPessoa = true;
     controls.enabled = false;
     document.getElementById('ship-ui').classList.add('active');
-    document.getElementById('customize-panel').classList.add('active');
     
-    // Calcula o ponto inicial do deck
+    // Ativa o Pointer Lock para o mouse não sair da tela
+    renderer.domElement.requestPointerLock();
+
+    // Ajusta o FOV para 75 (sensação de estar DENTRO do barco)
+    camera.fov = 75;
+    camera.updateProjectionMatrix();
+    
+    // Posição inicial no convés
     const startPos = barco.position.clone();
-    startPos.y += 1.5; // Altura do olho no barco
-    startPos.z += 2;   // Desloca para trás no convés
+    startPos.y += 1.8; // Altura dos olhos
+    startPos.z += 3;   
     camera.position.copy(startPos);
-    alturaCamera = startPos.y;
     
     yaw = barco.rotation.y; pitch = 0;
     
-    if (vozAtivada) falar("Bem-vindo ao navio! Use W, A, S, D para andar.");
+    if (vozAtivada) falar("Bem-vindo ao navio! Use W, A, S, D para andar. Aperte ESC para sair.");
     return;
   }
 
@@ -578,11 +563,27 @@ addEventListener('click', e => {
   }
 });
 
+// SAIR DO NAVIO (Ao apertar ESC)
+document.addEventListener('pointerlockchange', () => {
+  if (!document.pointerLockElement && modoPrimeiraPessoa) {
+    fecharNavio();
+  }
+});
+
 function fecharNavio() {
-  document.getElementById('ship-ui').classList.remove('active');
+  if (!modoPrimeiraPessoa) return;
+  
   modoPrimeiraPessoa = false;
   modoSpray = false;
+  estaPintando = false;
   controls.enabled = true;
+  document.getElementById('ship-ui').classList.remove('active');
+  
+  // Restaura FOV do mapa
+  camera.fov = 45;
+  camera.updateProjectionMatrix();
+
+  // Reseta a câmera pro mapa
   voarPara(new THREE.Vector3(0, 1.5, 0), 1800, new THREE.Vector3(0, 25, 35));
 }
 window.fecharNavio = fecharNavio;
@@ -640,7 +641,6 @@ btnSpray.onclick = () => {
     btnSpray.textContent = '🛑 Parar Spray';
     btnSpray.style.background = '#ef4444';
     btnSpray.style.color = '#fff';
-    falar("Modo spray ativado. Clique e arraste no navio para pintar.");
   } else {
     modoSpray = false;
     btnSpray.textContent = 'Ativar Spray (Pintar)';
@@ -655,7 +655,6 @@ document.getElementById('btn-cartaz').addEventListener('click', () => {
   if (url) {
     new THREE.TextureLoader().load(url, (tex) => {
       const cartaz = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2), new THREE.MeshBasicMaterial({ map: tex }));
-      // Adiciona o cartaz ao barco para ele flutuar junto
       barco.attach(cartaz);
       cartaz.position.set(0, 3, 2); 
     });
@@ -663,10 +662,11 @@ document.getElementById('btn-cartaz').addEventListener('click', () => {
 });
 
 // ============================================================
-// LOOP DE ANIMAÇÃO (Com Física de Raycast)
+// LOOP DE ANIMAÇÃO (Física Avançada FPS)
 // ============================================================
 const clock = new THREE.Clock();
 const raycasterChao = new THREE.Raycaster();
+const raycasterParede = new THREE.Raycaster();
 
 function animar() {
   requestAnimationFrame(animar);
@@ -680,8 +680,8 @@ function animar() {
     barco.rotation.x = Math.cos(t * 0.8) * 0.03;
     
     if (modoPrimeiraPessoa) {
-      // 1. Movimentação (WASD)
-      const speed = 0.15;
+      // 1. Movimentação
+      const speed = 0.12;
       const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
       const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
       
@@ -693,29 +693,42 @@ function animar() {
       
       if (moveDir.length() > 0) {
         moveDir.normalize();
-        camera.position.add(moveDir.multiplyScalar(speed));
-      }
-
-      // 2. Física de Colisão (Raycast para o chão do barco)
-      const origin = camera.position.clone();
-      origin.y += 1; // Origem um pouco acima da câmera
-      
-      raycasterChao.set(origin, new THREE.Vector3(0, -1, 0));
-      const hits = raycasterChao.intersectObjects(collidersBarco, false);
-      
-      if (hits.length > 0) {
-        // Achou o chão do barco, trava a câmera na altura do objeto + altura dos olhos
-        const alturaChao = hits[0].point.y;
-        alturaCamera = alturaChao + 0.8; // 0.8 é a altura dos olhos
-        camera.position.y = alturaCamera;
-      } else {
-        // Se sair do barco e cair na água, reseta pro centro
-        if (camera.position.y < -1) {
-          camera.position.set(barco.position.x, barco.position.y + 1.5, barco.position.z);
+        
+        // Colisão de Parede (Avança um pouco a frente e testa)
+        const raioParedeOrigem = camera.position.clone();
+        raioParedeOrigem.y += 0.5; // Peito
+        raycasterParede.set(raioParedeOrigem, moveDir);
+        raycasterParede.far = 0.8; // Distância do corpo
+        const hitsParede = raycasterParede.intersectObjects(collidersBarco, false);
+        
+        // Se não bater na parede, deixa andar
+        if (hitsParede.length === 0) {
+          camera.position.add(moveDir.multiplyScalar(speed));
         }
       }
 
-      // 3. Rotação da Câmera (Mouse)
+      // 2. Física de Queda e Chão (Escadas)
+      const origin = camera.position.clone();
+      origin.y += 0.5; 
+      
+      raycasterChao.set(origin, new THREE.Vector3(0, -1, 0));
+      raycasterChao.far = 5;
+      const hits = raycasterChao.intersectObjects(collidersBarco, false);
+      
+      if (hits.length > 0) {
+        const alturaChao = hits[0].point.y;
+        // Sobe se tiver degrau, desce se estiver no ar
+        alturaCamera = alturaChao + 1.6; 
+        camera.position.y = THREE.MathUtils.lerp(camera.position.y, alturaCamera, 0.3); 
+      } else {
+        // Gravidade (caiu do barco)
+        camera.position.y -= 0.1;
+        if (camera.position.y < -1) {
+          camera.position.set(barco.position.x, barco.position.y + 2, barco.position.z + 2);
+        }
+      }
+
+      // 3. Rotação
       camera.rotation.set(pitch, yaw, 0, 'YXZ');
     }
 
