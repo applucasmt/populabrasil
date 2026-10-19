@@ -252,7 +252,6 @@ async function criarBarco() {
       adicionarItensAoBarco();
       resolve(barco);
     }, undefined, () => {
-      // Fallback
       barco = new THREE.Group();
       const matMad = new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.8 });
       const casco = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.6, 1.4), matMad);
@@ -418,35 +417,105 @@ let modoSpray = false;
 let estaPintando = false;
 let alturaCamera = 0; 
 let corSpray = "#ff0000";
+let velocidadeY = 0; 
+let noChao = false;
 
-const keys = { w: false, a: false, s: false, d: false };
+const keys = { w: false, a: false, s: false, d: false, space: false };
 let yaw = 0, pitch = 0;
 
 // ============================================================
-// ATALHOS DE TECLADO (CHAT, PIXAR, IMAGEM)
+// MODELO DE SPRAY NA MÃO
+// ============================================================
+let maoSpray;
+const particulasTinta = [];
+
+function criarMaoSpray() {
+  maoSpray = new THREE.Group();
+  
+  // Lata de Spray
+  const lataGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.25, 16);
+  const lataMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.8, roughness: 0.2 });
+  const lata = new THREE.Mesh(lataGeo, lataMat);
+  lata.position.set(0.3, -0.3, -0.6); 
+  maoSpray.add(lata);
+
+  // Bico do Spray
+  const bico = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.08, 8), new THREE.MeshStandardMaterial({ color: 0x333333 }));
+  bico.position.set(0.3, -0.18, -0.6); 
+  bico.rotation.x = Math.PI / 2;
+  maoSpray.add(bico);
+
+  // Braço (Apenas um cilindro bege)
+  const braco = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.4, 8), new THREE.MeshStandardMaterial({ color: 0xffcc99 }));
+  braco.position.set(0.3, -0.5, -0.4);
+  braco.rotation.x = -Math.PI / 4;
+  maoSpray.add(braco);
+
+  camera.add(maoSpray);
+  scene.add(camera);
+  maoSpray.visible = false; // Esconde por padrão
+}
+
+function atirarTinta() {
+  if (!modoSpray || !estaPintando) return;
+  
+  // Cria uma partícula
+  const pGeo = new THREE.SphereGeometry(0.02, 4, 4);
+  const pMat = new THREE.MeshBasicMaterial({ color: corSpray });
+  const particula = new THREE.Mesh(pGeo, pMat);
+  
+  // Pega a posição do bico do spray no mundo
+  const posBico = new THREE.Vector3();
+  const bicoObj = maoSpray.children[1]; // O cone do bico
+  bicoObj.getWorldPosition(posBico);
+  particula.position.copy(posBico);
+  
+  // Direção: para onde a câmera está olhando
+  const direcao = new THREE.Vector3();
+  camera.getWorldDirection(direcao);
+  
+  // Adiciona um pouco de aleatoriedade (spray)
+  direcao.x += (Math.random() - 0.5) * 0.05;
+  direcao.y += (Math.random() - 0.5) * 0.05;
+  direcao.z += (Math.random() - 0.5) * 0.05;
+  
+  scene.add(particula);
+  particulasTinta.push({
+    mesh: particula,
+    vel: direcao.multiplyScalar(0.3),
+    vida: 0.5
+  });
+}
+
+// ============================================================
+// ATALHOS E CONTROLES
 // ============================================================
 addEventListener('keydown', (e) => {
-  if (modoPrimeiraPessoa) {
-    switch(e.key.toLowerCase()) {
-      case 'w': keys.w = true; break;
-      case 'a': keys.a = true; break;
-      case 's': keys.s = true; break;
-      case 'd': keys.d = true; break;
-      // Atalho para Chat
-      case 't': 
-        e.preventDefault();
-        document.exitPointerLock();
-        document.getElementById('chat-input').focus();
-        break;
-      // Atalho para Spray
-      case 'p':
-        toggleSpray();
-        break;
-      // Atalho para Imagem
-      case 'i':
-        document.getElementById('file-cartaz').click();
-        break;
-    }
+  if (!modoPrimeiraPessoa) return;
+  
+  switch(e.key.toLowerCase()) {
+    case 'w': keys.w = true; break;
+    case 'a': keys.a = true; break;
+    case 's': keys.s = true; break;
+    case 'd': keys.d = true; break;
+    case ' ':
+      if (noChao) {
+        velocidadeY = 0.15; // Pulo
+        noChao = false;
+      }
+      break;
+    case 't': 
+      e.preventDefault();
+      document.exitPointerLock();
+      document.getElementById('chat-input').focus();
+      break;
+    case 'p':
+      toggleSpray();
+      break;
+    case 'i':
+      document.getElementById('file-cartaz').click();
+      // Não chama exitPointerLock, o file picker já tira o foco
+      break;
   }
 });
 
@@ -472,7 +541,6 @@ addEventListener('mousemove', e => {
         const splat = new THREE.Mesh(splatGeo, splatMat);
         
         barco.attach(splat);
-        
         splat.position.copy(point);
         const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
         const normal = hits[0].face.normal.clone().applyMatrix3(normalMatrix).normalize();
@@ -558,6 +626,8 @@ addEventListener('click', e => {
 // SAIR DO NAVIO
 document.addEventListener('pointerlockchange', () => {
   if (!document.pointerLockElement && modoPrimeiraPessoa) {
+    // Se o file picker estiver aberto, não fecha!
+    if (document.activeElement && document.activeElement.id === 'file-cartaz') return;
     fecharNavio();
   }
 });
@@ -571,12 +641,13 @@ function fecharNavio() {
   document.getElementById('ship-ui').classList.remove('active');
   camera.fov = 45;
   camera.updateProjectionMatrix();
+  if (maoSpray) maoSpray.visible = false;
   voarPara(new THREE.Vector3(0, 1.5, 0), 1800, new THREE.Vector3(0, 25, 35));
 }
 window.fecharNavio = fecharNavio;
 
 // ============================================================
-// PEERJS E UI DO NAVIO
+// PEERJS E UI
 // ============================================================
 const ROOM_ID = 'brasil3d-sala-global-v3';
 let peer, connections = [];
@@ -602,7 +673,7 @@ document.getElementById('chat-send').addEventListener('click', () => {
     addChatMessage(user, text);
     connections.forEach(conn => { if (conn.open) conn.send({ type: 'chat', user, text }); });
     chatInput.value = '';
-    renderer.domElement.requestPointerLock(); // Devolve o mouse pro jogo
+    if (modoPrimeiraPessoa) renderer.domElement.requestPointerLock();
   }
 });
 
@@ -614,7 +685,6 @@ function addChatMessage(user, text) {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// BOTÃO SPRAY E PALETA DE CORES
 const btnSpray = document.getElementById('btn-pixar');
 const colorPicker = document.getElementById('color-picker');
 
@@ -628,24 +698,24 @@ function toggleSpray() {
     btnSpray.textContent = '🛑 Parar Spray';
     btnSpray.style.background = '#ef4444';
     btnSpray.style.color = '#fff';
-    falar("Spray ativado. Clique e arraste no navio para pintar.");
+    if (maoSpray) maoSpray.visible = true;
+    falar("Spray ativado.");
   } else {
     modoSpray = false;
+    estaPintando = false;
     btnSpray.textContent = '🎨 Ativar Spray';
     btnSpray.style.background = '#eab308';
     btnSpray.style.color = '#000';
+    if (maoSpray) maoSpray.visible = false;
   }
 }
 
 btnSpray.addEventListener('click', () => {
   toggleSpray();
-  // Se o usuário clicar no painel, o mouse sai do PointerLock, a gente devolve:
-  if (modoSpray) {
-    setTimeout(() => renderer.domElement.requestPointerLock(), 100);
-  }
+  if (modoPrimeiraPessoa) setTimeout(() => renderer.domElement.requestPointerLock(), 100);
 });
 
-// UPLOAD DE IMAGEM (CARTAZ)
+// ENVIAR CARTAZ (Ajustado para colar na parede)
 const btnCartaz = document.getElementById('btn-cartaz');
 const fileInput = document.getElementById('file-cartaz');
 
@@ -660,14 +730,40 @@ fileInput.addEventListener('change', (e) => {
   const reader = new FileReader();
   reader.onload = (event) => {
     const tex = new THREE.TextureLoader().load(event.target.result);
-    const cartaz = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+    const cartaz = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.2), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
     
-    // Fixa o cartaz no barco
-    barco.attach(cartaz);
-    cartaz.position.set(0, 3, 2); 
-    
-    fileInput.value = ''; // Limpa o input
-    setTimeout(() => renderer.domElement.requestPointerLock(), 100); // Devolve o mouse
+    // Faz um Raycast do centro da tela para achar a parede
+    const raycasterCentro = new THREE.Raycaster();
+    raycasterCentro.setFromCamera(new THREE.Vector2(0, 0), camera);
+    const hits = raycasterCentro.intersectObjects(collidersBarco, false);
+
+    if (hits.length > 0) {
+      const mesh = hits[0].object;
+      const point = hits[0].point;
+      
+      // Cola o cartaz no barco, no ponto exato e na inclinação da parede
+      barco.attach(cartaz);
+      cartaz.position.copy(point);
+      
+      const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
+      const normal = hits[0].face.normal.clone().applyMatrix3(normalMatrix).normalize();
+      
+      // Olha na direção contrária à parede (para a imagem ficar de frente)
+      const lookAtPoint = point.clone().sub(normal);
+      cartaz.lookAt(lookAtPoint);
+      
+      cartaz.position.add(normal.multiplyScalar(0.02)); // Empurra um pouquinho pra não bugar
+    } else {
+      // Se não tiver mirando na parede, coloca na frente da câmera
+      cartaz.position.copy(camera.position);
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      cartaz.position.add(dir.multiplyScalar(2));
+      scene.add(cartaz);
+    }
+
+    fileInput.value = ''; 
+    if (modoPrimeiraPessoa) renderer.domElement.requestPointerLock(); 
   };
   reader.readAsDataURL(file);
 });
@@ -685,13 +781,25 @@ function animar() {
 
   water.material.uniforms['time'].value += 0.5 / 60.0;
 
+  // Partículas de tinta
+  for (let i = particulasTinta.length - 1; i >= 0; i--) {
+    const p = particulasTinta[i];
+    p.mesh.position.add(p.vel);
+    p.vida -= 0.05;
+    p.mesh.material.opacity = p.vida / 0.5;
+    p.mesh.material.transparent = true;
+    if (p.vida <= 0) {
+      scene.remove(p.mesh);
+      particulasTinta.splice(i, 1);
+    }
+  }
+
   if (barco) {
     barco.position.y = Math.sin(t * 1.5) * 0.15;
     barco.rotation.z = Math.sin(t * 1.0) * 0.05;
     barco.rotation.x = Math.cos(t * 0.8) * 0.03;
     
     if (modoPrimeiraPessoa) {
-      // Física de movimento
       const speed = 0.12;
       const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
       const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -715,7 +823,7 @@ function animar() {
         }
       }
 
-      // Física de altura/queda
+      // Física de altura/queda/pulo
       const origin = camera.position.clone();
       origin.y += 0.5; 
       raycasterChao.set(origin, new THREE.Vector3(0, -1, 0));
@@ -725,15 +833,32 @@ function animar() {
       if (hits.length > 0) {
         const alturaChao = hits[0].point.y;
         alturaCamera = alturaChao + 1.6; 
-        camera.position.y = THREE.MathUtils.lerp(camera.position.y, alturaCamera, 0.3); 
+        // Se estiver no chão, aplica o pulo
+        if (noChao && keys.space) {
+           // feito no keydown
+        }
+        camera.position.y = THREE.MathUtils.lerp(camera.position.y, alturaCamera, 0.3);
+        noChao = true;
+        velocidadeY = 0; 
       } else {
-        camera.position.y -= 0.1;
+        // Gravidade
+        velocidadeY -= 0.01;
+        camera.position.y += velocidadeY;
+        noChao = false;
+        
         if (camera.position.y < -1) {
           camera.position.set(barco.position.x, barco.position.y + 2, barco.position.z + 2);
+          velocidadeY = 0;
         }
       }
 
       camera.rotation.set(pitch, yaw, 0, 'YXZ');
+      
+      // Efeito de balanço do spray
+      if (modoSpray && maoSpray) {
+        maoSpray.position.y = Math.sin(t * 10) * 0.01;
+        if (estaPintando) atirarTinta();
+      }
     }
 
     barco.children.forEach(ch => {
@@ -759,6 +884,7 @@ addEventListener('resize', () => {
 (async () => {
   try { await carregarEstados(); } catch (e) { console.error(e); }
   await carregarMoradores();
+  criarMaoSpray(); // Inicializa o spray
   document.getElementById('loading').classList.add('hide');
   animar();
 
