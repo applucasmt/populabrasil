@@ -7,7 +7,6 @@
   <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" />
   <link rel="stylesheet" href="style.css" />
   
-  <!-- PeerJS via CDN (Corrigido) -->
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
   <script type="importmap">
@@ -33,31 +32,35 @@
 
   <button id="btnVoz" class="btn-float">🔊 Ativar Voz</button>
 
-  <!-- PAINEL DO NAVIO (CHAT E CUSTOMIZAÇÃO) -->
+  <!-- PAINEL DO NAVIO -->
   <div id="ship-ui">
     <div id="ship-header">
-      <span>⚓ Navio Interativo (Global)</span>
+      <span>⚓ Navio Interativo (ESC para sair)</span>
       <button style="background:none;border:none;color:#fff;cursor:pointer;" onclick="fecharNavio()">✖</button>
     </div>
+    
+    <div style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 0.75rem; color: #94a3b8; text-align: center;">
+      <strong>Atalhos:</strong> [T] Chat | [P] Spray | [I] Cartaz
+    </div>
+
     <div id="chat-messages"></div>
     <div id="chat-input-area">
       <input type="text" id="chat-input" placeholder="Digite sua mensagem..." />
       <button id="chat-send">Enviar</button>
     </div>
-    <div style="padding: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
-      <button id="btn-pixar" style="width:100%; background:#eab308; color:#000; font-weight:bold; border:none; padding:8px; border-radius:6px; cursor:pointer; margin-bottom:8px;">🎨 Pixar Navio</button>
-      <button id="btn-cartaz" style="width:100%; background:#3b82f6; color:#fff; font-weight:bold; border:none; padding:8px; border-radius:6px; cursor:pointer;">🖼️ Colocar Cartaz</button>
-    </div>
-  </div>
 
-  <!-- PAINEL DE CUSTOMIZAÇÃO (ROBLOX) -->
-  <div id="customize-panel">
-    <h3>Personalizar Boneco</h3>
-    <label>Cor da Camisa:</label>
-    <input type="color" id="color-shirt" value="#3b82f6" />
-    <label>Cor da Pele:</label>
-    <input type="color" id="color-skin" value="#ffcc99" />
-    <button id="save-custom">Salvar</button>
+    <div style="padding: 10px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; gap: 8px;">
+      
+      <!-- Controles de Spray -->
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input type="color" id="color-picker" value="#ff0000" style="width: 40px; height: 40px; border: none; border-radius: 6px; cursor: pointer;" title="Escolha a cor do Spray" />
+        <button id="btn-pixar" style="flex:1; background:#eab308; color:#000; font-weight:bold; border:none; padding:8px; border-radius:6px; cursor:pointer;">🎨 Ativar Spray</button>
+      </div>
+
+      <!-- Upload de Imagem (Cartaz) -->
+      <input type="file" id="file-cartaz" accept="image/*" style="display: none;" />
+      <button id="btn-cartaz" style="width:100%; background:#3b82f6; color:#fff; font-weight:bold; border:none; padding:8px; border-radius:6px; cursor:pointer;">🖼️ Enviar Imagem</button>
+    </div>
   </div>
 
   <div id="legenda">
