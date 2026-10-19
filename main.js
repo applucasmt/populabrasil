@@ -8,7 +8,7 @@ import { Water } from 'three/addons/objects/Water.js';
 const Peer = window.Peer;
 
 // ============================================================
-// REGIÕES E COORDENADAS (Do seu backup)
+// REGIÕES E COORDENADAS
 // ============================================================
 const REGIOES = {
   'Norte':        { lat: -4.0,  lon: -62.0 },
@@ -39,7 +39,7 @@ const CORES_UF = {
 };
 
 // ============================================================
-// CENA / CÂMERA / RENDERER (Do seu backup)
+// CENA / CÂMERA / RENDERER
 // ============================================================
 const app = document.getElementById('app');
 const scene = new THREE.Scene();
@@ -63,7 +63,7 @@ controls.minDistance = 10;
 controls.maxDistance = 100;
 
 // ============================================================
-// CÉU E LUZES REALISTAS (Do seu backup)
+// CÉU E LUZES REALISTAS
 // ============================================================
 const sky = new Sky();
 sky.scale.setScalar(45000);
@@ -93,7 +93,7 @@ scene.add(sunLight);
 scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
 // ============================================================
-// OCEANO (Do seu backup)
+// OCEANO
 // ============================================================
 const waterGeometry = new THREE.PlaneGeometry(10000, 10000);
 const waterNormals = new THREE.TextureLoader().load('https://threejs.org/examples/textures/waternormals.jpg', (tex) => {
@@ -110,7 +110,7 @@ water.position.y = -0.3;
 scene.add(water);
 
 // ============================================================
-// MAPA DO BRASIL (Do seu backup)
+// MAPA DO BRASIL
 // ============================================================
 const grupoMapa = new THREE.Group();
 const grupoBordas = new THREE.Group();
@@ -190,7 +190,7 @@ async function carregarEstados() {
 }
 
 // ============================================================
-// CASAS (Do seu backup)
+// CASAS
 // ============================================================
 function criarCasa(fotoURL, usuario, nome) {
   const grupo = new THREE.Group();
@@ -227,7 +227,7 @@ function criarCasa(fotoURL, usuario, nome) {
 }
 
 // ============================================================
-// BARCO (Do seu backup com ajustes)
+// BARCO
 // ============================================================
 let barco;
 const shipHitbox = new THREE.Mesh(new THREE.BoxGeometry(15, 10, 15), new THREE.MeshBasicMaterial({ visible: false }));
@@ -288,7 +288,7 @@ function adicionarItensAoBarco() {
 }
 
 // ============================================================
-// MORADORES (Do seu backup)
+// MORADORES
 // ============================================================
 const casas = [];
 async function carregarMoradores() {
@@ -354,7 +354,7 @@ function atualizarStats() {
 }
 
 // ============================================================
-// VOZ (TTS) (Do seu backup)
+// VOZ (TTS)
 // ============================================================
 let vozAtivada = false;
 let vozesDisponiveis = [];
@@ -382,7 +382,7 @@ function falar(texto) {
 }
 
 // ============================================================
-// CÂMERA, CLIQUE E CHAT
+// CÂMERA, CLIQUE, FPS E PINTURA COM SPRAY
 // ============================================================
 let camAnim = null;
 function voarPara(alvo, duracao = 2000, offset = new THREE.Vector3(0, 9, 11)) {
@@ -403,6 +403,7 @@ function voarPara(alvo, duracao = 2000, offset = new THREE.Vector3(0, 9, 11)) {
 
 document.querySelectorAll('#legenda button').forEach(btn => {
   btn.addEventListener('click', () => {
+    if (modoPrimeiraPessoa) return; // Não deixa navegar no mapa se estiver no barco
     const regiao = btn.dataset.regiao;
     if (regiao === 'BRASIL') {
       voarPara(new THREE.Vector3(0, 1.5, 0), 1800, new THREE.Vector3(0, 25, 35));
@@ -429,87 +430,151 @@ function getIntersects(e, objects) {
   return raycaster.intersectObjects(objects, true);
 }
 
-addEventListener('mousemove', e => {
-  const hitsBarco = getIntersects(e, [shipHitbox]);
-  if (hitsBarco.length > 0) {
-    tooltipEl.innerHTML = `<strong>Navio Interativo</strong> · Clique para entrar (1ª Pessoa)`;
-    tooltipEl.style.left = e.clientX + 'px'; tooltipEl.style.top = e.clientY + 'px';
-    tooltipEl.style.display = 'block';
-    document.body.style.cursor = 'pointer';
-    return;
-  }
+// Variáveis de Estado
+let modoPrimeiraPessoa = false;
+let modoSpray = false;
+let corSpray = '#ff0000';
+let estaPintando = false;
 
-  const hits = getIntersects(e, casas);
-  if (hits.length > 0) {
-    let obj = hits[0].object;
-    while (obj.parent && !obj.userData.usuario) obj = obj.parent;
-    if (obj.userData.usuario) {
-      tooltipEl.innerHTML = `<strong>${obj.userData.usuario}</strong> · ${obj.userData.nome}`;
+// Setup do controle de movimentação WASD
+const keys = { w: false, a: false, s: false, d: false };
+let yaw = 0, pitch = 0;
+
+addEventListener('keydown', (e) => {
+  if (!modoPrimeiraPessoa) return;
+  switch(e.key.toLowerCase()) {
+    case 'w': keys.w = true; break;
+    case 'a': keys.a = true; break;
+    case 's': keys.s = true; break;
+    case 'd': keys.d = true; break;
+  }
+});
+addEventListener('keyup', (e) => {
+  switch(e.key.toLowerCase()) {
+    case 'w': keys.w = false; break;
+    case 'a': keys.a = false; break;
+    case 's': keys.s = false; break;
+    case 'd': keys.d = false; break;
+  }
+});
+
+// Mouse Look (Olhar ao redor) dentro do navio
+addEventListener('mousemove', e => {
+  if (modoPrimeiraPessoa) {
+    if (modoSpray && estaPintando) {
+      // Se estiver pintando, não gira a câmera, aplica o spray!
+      const hits = getIntersects(e, [barco]);
+      if (hits.length > 0 && hits[0].object.isMesh) {
+        const mesh = hits[0].object;
+        const point = hits[0].point;
+        
+        // Cria um pequeno círculo de tinta no ponto exato
+        const splatGeo = new THREE.CircleGeometry(0.15, 8);
+        const splatMat = new THREE.MeshBasicMaterial({ color: corSpray, side: THREE.DoubleSide });
+        const splat = new THREE.Mesh(splatGeo, splatMat);
+        
+        // Posiciona a tinta no local e alinha com a normal da parede
+        splat.position.copy(point);
+        const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
+        const normal = hits[0].face.normal.clone().applyMatrix3(normalMatrix).normalize();
+        splat.lookAt(point.clone().add(normal));
+        splat.position.add(normal.multiplyScalar(0.01)); // Empurra um pouquinho pra não bugar
+        
+        scene.add(splat);
+      }
+    } else {
+      // Movimento normal da câmera
+      yaw -= e.movementX * 0.002;
+      pitch -= e.movementY * 0.002;
+      pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
+    }
+  } else {
+    // Hover do mapa e barco
+    const hitsBarco = getIntersects(e, [shipHitbox]);
+    if (hitsBarco.length > 0) {
+      tooltipEl.innerHTML = `<strong>Navio Interativo</strong> · Clique para entrar (1ª Pessoa)`;
       tooltipEl.style.left = e.clientX + 'px'; tooltipEl.style.top = e.clientY + 'px';
       tooltipEl.style.display = 'block';
       document.body.style.cursor = 'pointer';
       return;
     }
-  }
-  
-  const hitsEstado = getIntersects(e, estadosClique);
-  if (hitsEstado.length > 0) {
-    const uf = hitsEstado[0].object.userData.uf;
-    tooltipEl.innerHTML = `<strong>${uf}</strong> · Clique para explorar`;
-    tooltipEl.style.left = e.clientX + 'px'; tooltipEl.style.top = e.clientY + 'px';
-    tooltipEl.style.display = 'block';
-    document.body.style.cursor = 'pointer';
-  } else {
-    tooltipEl.style.display = 'none';
-    document.body.style.cursor = 'default';
+
+    const hits = getIntersects(e, casas);
+    if (hits.length > 0) {
+      let obj = hits[0].object;
+      while (obj.parent && !obj.userData.usuario) obj = obj.parent;
+      if (obj.userData.usuario) {
+        tooltipEl.innerHTML = `<strong>${obj.userData.usuario}</strong> · ${obj.userData.nome}`;
+        tooltipEl.style.left = e.clientX + 'px'; tooltipEl.style.top = e.clientY + 'px';
+        tooltipEl.style.display = 'block';
+        document.body.style.cursor = 'pointer';
+        return;
+      }
+    }
+    
+    const hitsEstado = getIntersects(e, estadosClique);
+    if (hitsEstado.length > 0) {
+      const uf = hitsEstado[0].object.userData.uf;
+      tooltipEl.innerHTML = `<strong>${uf}</strong> · Clique para explorar`;
+      tooltipEl.style.left = e.clientX + 'px'; tooltipEl.style.top = e.clientY + 'px';
+      tooltipEl.style.display = 'block';
+      document.body.style.cursor = 'pointer';
+    } else {
+      tooltipEl.style.display = 'none';
+      document.body.style.cursor = 'default';
+    }
   }
 });
 
-// Variável para guardar o modo de câmera
-let modoPrimeiraPessoa = false;
+addEventListener('mousedown', (e) => {
+  if (modoPrimeiraPessoa && modoSpray) estaPintando = true;
+});
+
+addEventListener('mouseup', () => {
+  estaPintando = false;
+});
 
 addEventListener('click', e => {
-  // Clique no Navio
+  if (modoPrimeiraPessoa) return; // Ignora clique se estiver dentro do navio
+
   const hitsBarco = getIntersects(e, [shipHitbox]);
   if (hitsBarco.length > 0) {
     modoPrimeiraPessoa = true;
-    controls.enabled = false; // Desativa órbita
+    controls.enabled = false; // Desativa o OrbitControls
     document.getElementById('ship-ui').classList.add('active');
     document.getElementById('customize-panel').classList.add('active');
     
-    // Câmera vai para o convés, visão em 1ª pessoa
+    // Posiciona a câmera no convés
     camera.position.set(barco.position.x, barco.position.y + 2.5, barco.position.z + 2);
-    controls.target.copy(barco.position);
+    yaw = barco.rotation.y; pitch = 0;
     
-    if (vozAtivada) falar("Bem-vindo ao navio! Você está em primeira pessoa.");
+    if (vozAtivada) falar("Bem-vindo ao navio! Use W, A, S, D para andar.");
     return;
   }
 
-  // Clique no Estado (só funciona se não estiver no barco)
-  if (!modoPrimeiraPessoa) {
-    const hitsEstado = getIntersects(e, estadosClique);
-    if (hitsEstado.length > 0) {
-      const meshClicado = hitsEstado[0].object;
-      meshClicado.geometry.computeBoundingBox();
-      const centro = new THREE.Vector3();
-      meshClicado.geometry.boundingBox.getCenter(centro);
-      
-      const posGlobal = meshClicado.localToWorld(centro);
-      posGlobal.y = 1.0;
-      
-      voarPara(posGlobal, 1500, new THREE.Vector3(0, 8, 10));
-      
-      if (vozAtivada) setTimeout(() => falar(`Explorando o estado ${meshClicado.userData.uf}`), 200);
-    }
+  const hitsEstado = getIntersects(e, estadosClique);
+  if (hitsEstado.length > 0) {
+    const meshClicado = hitsEstado[0].object;
+    meshClicado.geometry.computeBoundingBox();
+    const centro = new THREE.Vector3();
+    meshClicado.geometry.boundingBox.getCenter(centro);
+    
+    const posGlobal = meshClicado.localToWorld(centro);
+    posGlobal.y = 1.0;
+    
+    voarPara(posGlobal, 1500, new THREE.Vector3(0, 8, 10));
+    if (vozAtivada) setTimeout(() => falar(`Explorando o estado ${meshClicado.userData.uf}`), 200);
   }
 });
 
 function fecharNavio() {
   document.getElementById('ship-ui').classList.remove('active');
   modoPrimeiraPessoa = false;
+  modoSpray = false;
   controls.enabled = true;
   voarPara(new THREE.Vector3(0, 1.5, 0), 1800, new THREE.Vector3(0, 25, 35)); // Volta pra visão geral
 }
+window.fecharNavio = fecharNavio; // Torna global pro HTML
 
 // ============================================================
 // PEERJS: CHAT GLOBAL E CUSTOMIZAÇÃO
@@ -549,33 +614,33 @@ function addChatMessage(user, text) {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// Botões do Navio
 document.getElementById('save-custom').addEventListener('click', () => {
   document.getElementById('customize-panel').classList.remove('active');
 });
 
-document.getElementById('btn-pixar').addEventListener('click', () => {
-  const novaCor = prompt("Digite a cor HEX para pintar o navio (ex: #ff0000):", "#ff0000");
-  if (novaCor) {
-    barco.traverse(c => {
-      if (c.isMesh && c.material) {
-        if (!c.material.map) {
-          const canvas = document.createElement('canvas');
-          canvas.width = 512; canvas.height = 512;
-          const ctx = canvas.getContext('2d');
-          ctx.fillStyle = novaCor; ctx.fillRect(0, 0, 512, 512);
-          c.material.map = new THREE.CanvasTexture(canvas);
-        } else {
-          const canvas = c.material.map.image;
-          const ctx = canvas.getContext('2d');
-          ctx.fillStyle = novaCor; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-        c.material.needsUpdate = true;
-      }
-    });
+// BOTÃO DE SPRAY
+const btnSpray = document.createElement('button');
+btnSpray.textContent = 'Ativar Spray (Pintar)';
+btnSpray.style.cssText = 'width:100%; background:#eab308; color:#000; font-weight:bold; border:none; padding:8px; border-radius:6px; cursor:pointer; margin-bottom:8px;';
+btnSpray.onclick = () => {
+  if (!modoSpray) {
+    const cor = prompt("Digite a cor HEX do spray (ex: #ff0000):", corSpray);
+    if (cor) corSpray = cor;
+    modoSpray = true;
+    btnSpray.textContent = '🛑 Parar Spray';
+    btnSpray.style.background = '#ef4444';
+    btnSpray.style.color = '#fff';
+    falar("Modo spray ativado. Clique e arraste no navio para pintar.");
+  } else {
+    modoSpray = false;
+    btnSpray.textContent = 'Ativar Spray (Pintar)';
+    btnSpray.style.background = '#eab308';
+    btnSpray.style.color = '#000';
   }
-});
+};
+document.querySelector('#ship-ui div:last-child').insertBefore(btnSpray, document.getElementById('btn-cartaz'));
 
+// BOTÃO DE CARTAZ (Mantido)
 document.getElementById('btn-cartaz').addEventListener('click', () => {
   const url = prompt("Cole a URL da imagem do cartaz:");
   if (url) {
@@ -603,11 +668,22 @@ function animar() {
     barco.rotation.x = Math.cos(t * 0.8) * 0.03;
     shipHitbox.position.copy(barco.position);
     
-    // Se estiver em 1ª pessoa, a câmera acompanha o balanço do barco
     if (modoPrimeiraPessoa) {
-      camera.position.x = barco.position.x;
+      // 1. Movimentação FPS (WASD)
+      const speed = 0.1;
+      const forward = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, yaw, 0));
+      const right = new THREE.Vector3(1, 0, 0).applyEuler(new THREE.Euler(0, yaw, 0));
+      
+      if (keys.w) camera.position.add(forward.clone().multiplyScalar(speed));
+      if (keys.s) camera.position.add(forward.clone().multiplyScalar(-speed));
+      if (keys.a) camera.position.add(right.clone().multiplyScalar(-speed));
+      if (keys.d) camera.position.add(right.clone().multiplyScalar(speed));
+      
+      // 2. A câmera acompanha o balanço do barco
       camera.position.y = barco.position.y + 2.5;
-      camera.position.z = barco.position.z + 2;
+      
+      // 3. Aplica o mouse look na câmera
+      camera.rotation.set(pitch, yaw, 0, 'YXZ');
     }
 
     barco.children.forEach(ch => {
@@ -620,7 +696,7 @@ function animar() {
   }));
 
   if (camAnim) camAnim();
-  controls.update();
+  if (!modoPrimeiraPessoa) controls.update();
   renderer.render(scene, camera);
 }
 
