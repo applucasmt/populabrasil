@@ -2,9 +2,9 @@
 html, body {
   width: 100%; height: 100%; overflow: hidden;
   font-family: 'Segoe UI', system-ui, sans-serif;
-  background: transparent;
+  background: #0a0e1a;
 }
-#app { position: fixed; inset: 0; z-index: 0; }
+#app { position: fixed; inset: 0; }
 
 #hud {
   position: fixed; top: 20px; left: 20px; z-index: 10;
@@ -29,24 +29,27 @@ html, body {
   padding: 10px 16px; border-radius: 12px;
   cursor: pointer; font-size: 0.85rem; font-weight: 600;
   backdrop-filter: blur(8px); transition: all 0.25s;
+  text-decoration: none;
 }
-.btn-float:hover { background: #22c55e; border-color: #22c55e; }
+.btn-float:hover { background: #22c55e; border-color: #22c55e; transform: translateY(-2px); }
 #btnVoz { top: 20px; right: 20px; }
-#btnVoz.ativo { background: #22c55e; }
+#btnVoz.ativo { background: #22c55e; border-color: #22c55e; }
 
 #legenda {
   position: fixed; bottom: 20px; left: 50%;
   transform: translateX(-50%);
   display: flex; gap: 8px; z-index: 10;
   flex-wrap: wrap; justify-content: center;
+  max-width: 95vw;
 }
 #legenda button {
   background: rgba(0,0,0,0.6); color: #fff;
   border: 1px solid rgba(255,255,255,0.25);
   padding: 9px 16px; border-radius: 999px;
-  cursor: pointer; font-size: 0.82rem; transition: all 0.25s;
+  cursor: pointer; font-size: 0.82rem; font-weight: 500;
+  transition: all 0.25s; backdrop-filter: blur(8px);
 }
-#legenda button:hover { background: #22c55e; }
+#legenda button:hover { background: #22c55e; border-color: #22c55e; transform: translateY(-2px); }
 #legenda .btn-brasil { background: rgba(34,197,94,0.25); border-color: #22c55e; }
 
 #loading {
@@ -71,10 +74,11 @@ html, body {
   pointer-events: none; z-index: 20;
   transform: translate(-50%, -120%); white-space: nowrap;
   border: 1px solid rgba(34,197,94,0.4);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
 }
 .tooltip strong { color: #4ade80; }
 
-/* UI NAVIO */
+/* UI DO NAVIO */
 #ship-ui {
   position: fixed; bottom: 80px; right: 20px;
   width: 320px; background: rgba(15,23,42,0.95);
