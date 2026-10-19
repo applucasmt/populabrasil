@@ -4,7 +4,6 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { Water } from 'three/addons/objects/Water.js';
 
-// Correção PeerJS
 const Peer = window.Peer;
 
 // ============================================================
@@ -227,9 +226,10 @@ function criarCasa(fotoURL, usuario, nome) {
 }
 
 // ============================================================
-// BARCO (Sem Hitbox invisível, usa os próprios meshes)
+// BARCO (Marcado para física)
 // ============================================================
 let barco;
+let collidersBarco = [];
 
 async function criarBarco() {
   return new Promise((resolve) => {
@@ -240,38 +240,36 @@ async function criarBarco() {
       barco.position.set(24, 0.2, 5);
       barco.rotation.y = -0.8;
       
-      // Marca todos os pedaços do barco como clicáveis
       barco.traverse(c => { 
         if(c.isMesh) { 
           c.castShadow = true; 
           c.receiveShadow = true; 
-          c.userData.isBarco = true; // FLAG para o Raycaster achar
+          c.userData.isBarco = true; 
+          collidersBarco.push(c); // Adiciona aos objetos de colisão
         } 
       });
       
       adicionarItensAoBarco();
       resolve(barco);
     }, undefined, () => {
+      // Fallback
       barco = new THREE.Group();
       const matMad = new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.8 });
       const matVel = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, side: THREE.DoubleSide });
       
       const casco = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.6, 1.4), matMad);
       casco.position.y = 0.3; casco.castShadow = true; casco.userData.isBarco = true; barco.add(casco);
+      collidersBarco.push(casco);
       
       const proa = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.5, 4), matMad);
       proa.rotation.z = -Math.PI / 2; proa.rotation.y = Math.PI / 4;
       proa.position.set(1.8, 0.3, 0); proa.userData.isBarco = true; barco.add(proa);
-      
+      collidersBarco.push(proa);
+
       const cabine = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.9), matMad);
       cabine.position.set(-0.8, 0.9, 0); cabine.userData.isBarco = true; barco.add(cabine);
-      
-      const mastro = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3), matMad);
-      mastro.position.set(0.5, 1.8, 0); mastro.userData.isBarco = true; barco.add(mastro);
-      
-      const vela = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2), matVel);
-      vela.position.set(0.5, 2.0, 0); vela.rotation.y = Math.PI / 2; vela.userData.isBarco = true; barco.add(vela);
-      
+      collidersBarco.push(cabine);
+
       barco.position.set(24, 0.2, 5);
       barco.rotation.y = -0.8;
       adicionarItensAoBarco();
@@ -393,7 +391,7 @@ function falar(texto) {
 }
 
 // ============================================================
-// CÂMERA, CLIQUE E FPS
+// CÂMERA E CONTROLES DE FÍSICA (FPS)
 // ============================================================
 let camAnim = null;
 function voarPara(alvo, duracao = 2000, offset = new THREE.Vector3(0, 9, 11)) {
@@ -445,9 +443,12 @@ let modoPrimeiraPessoa = false;
 let modoSpray = false;
 let corSpray = '#ff0000';
 let estaPintando = false;
+let alturaCamera = 0; // Altura atual do chão
 
 const keys = { w: false, a: false, s: false, d: false };
 let yaw = 0, pitch = 0;
+const velocity = new THREE.Vector3();
+const direction = new THREE.Vector3();
 
 addEventListener('keydown', (e) => {
   if (!modoPrimeiraPessoa) return;
@@ -470,23 +471,24 @@ addEventListener('keyup', (e) => {
 addEventListener('mousemove', e => {
   if (modoPrimeiraPessoa) {
     if (modoSpray && estaPintando) {
-      // SPRAY: Pinta no local exato do clique
-      const hits = getIntersects(e, [barco]);
+      const hits = getIntersects(e, collidersBarco); // Usa apenas os meshes do barco
       if (hits.length > 0 && hits[0].object.isMesh) {
         const mesh = hits[0].object;
         const point = hits[0].point;
         
+        // Cria a mancha de tinta
         const splatGeo = new THREE.CircleGeometry(0.15, 8);
         const splatMat = new THREE.MeshBasicMaterial({ color: corSpray, side: THREE.DoubleSide });
         const splat = new THREE.Mesh(splatGeo, splatMat);
+        
+        // Coloca a mancha dentro do grupo do barco para ela acompanhar o balanço
+        barco.attach(splat);
         
         splat.position.copy(point);
         const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
         const normal = hits[0].face.normal.clone().applyMatrix3(normalMatrix).normalize();
         splat.lookAt(point.clone().add(normal));
         splat.position.add(normal.multiplyScalar(0.01)); 
-        
-        scene.add(splat);
       }
     } else {
       yaw -= e.movementX * 0.002;
@@ -494,7 +496,6 @@ addEventListener('mousemove', e => {
       pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
     }
   } else {
-    // Verifica Hover no Barco pelos modelos reais
     const hitsBarco = getIntersects(e, [barco]);
     if (hitsBarco.length > 0) {
       tooltipEl.innerHTML = `<strong>Navio Interativo</strong> · Clique para entrar`;
@@ -549,7 +550,13 @@ addEventListener('click', e => {
     document.getElementById('ship-ui').classList.add('active');
     document.getElementById('customize-panel').classList.add('active');
     
-    camera.position.set(barco.position.x, barco.position.y + 2.5, barco.position.z + 2);
+    // Calcula o ponto inicial do deck
+    const startPos = barco.position.clone();
+    startPos.y += 1.5; // Altura do olho no barco
+    startPos.z += 2;   // Desloca para trás no convés
+    camera.position.copy(startPos);
+    alturaCamera = startPos.y;
+    
     yaw = barco.rotation.y; pitch = 0;
     
     if (vozAtivada) falar("Bem-vindo ao navio! Use W, A, S, D para andar.");
@@ -581,7 +588,7 @@ function fecharNavio() {
 window.fecharNavio = fecharNavio;
 
 // ============================================================
-// PEERJS: CHAT E CUSTOMIZAÇÃO
+// PEERJS E CUSTOMIZAÇÃO
 // ============================================================
 const ROOM_ID = 'brasil3d-sala-global-v3';
 let peer, connections = [];
@@ -648,16 +655,19 @@ document.getElementById('btn-cartaz').addEventListener('click', () => {
   if (url) {
     new THREE.TextureLoader().load(url, (tex) => {
       const cartaz = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2), new THREE.MeshBasicMaterial({ map: tex }));
-      cartaz.position.set(barco.position.x, barco.position.y + 4, barco.position.z + 3);
-      scene.add(cartaz);
+      // Adiciona o cartaz ao barco para ele flutuar junto
+      barco.attach(cartaz);
+      cartaz.position.set(0, 3, 2); 
     });
   }
 });
 
 // ============================================================
-// LOOP DE ANIMAÇÃO
+// LOOP DE ANIMAÇÃO (Com Física de Raycast)
 // ============================================================
 const clock = new THREE.Clock();
+const raycasterChao = new THREE.Raycaster();
+
 function animar() {
   requestAnimationFrame(animar);
   const t = clock.getElapsedTime();
@@ -670,16 +680,42 @@ function animar() {
     barco.rotation.x = Math.cos(t * 0.8) * 0.03;
     
     if (modoPrimeiraPessoa) {
-      const speed = 0.1;
-      const forward = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, yaw, 0));
-      const right = new THREE.Vector3(1, 0, 0).applyEuler(new THREE.Euler(0, yaw, 0));
+      // 1. Movimentação (WASD)
+      const speed = 0.15;
+      const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+      const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
       
-      if (keys.w) camera.position.add(forward.clone().multiplyScalar(speed));
-      if (keys.s) camera.position.add(forward.clone().multiplyScalar(-speed));
-      if (keys.a) camera.position.add(right.clone().multiplyScalar(-speed));
-      if (keys.d) camera.position.add(right.clone().multiplyScalar(speed));
+      let moveDir = new THREE.Vector3();
+      if (keys.w) moveDir.add(forward);
+      if (keys.s) moveDir.sub(forward);
+      if (keys.d) moveDir.add(right);
+      if (keys.a) moveDir.sub(right);
       
-      camera.position.y = barco.position.y + 2.5;
+      if (moveDir.length() > 0) {
+        moveDir.normalize();
+        camera.position.add(moveDir.multiplyScalar(speed));
+      }
+
+      // 2. Física de Colisão (Raycast para o chão do barco)
+      const origin = camera.position.clone();
+      origin.y += 1; // Origem um pouco acima da câmera
+      
+      raycasterChao.set(origin, new THREE.Vector3(0, -1, 0));
+      const hits = raycasterChao.intersectObjects(collidersBarco, false);
+      
+      if (hits.length > 0) {
+        // Achou o chão do barco, trava a câmera na altura do objeto + altura dos olhos
+        const alturaChao = hits[0].point.y;
+        alturaCamera = alturaChao + 0.8; // 0.8 é a altura dos olhos
+        camera.position.y = alturaCamera;
+      } else {
+        // Se sair do barco e cair na água, reseta pro centro
+        if (camera.position.y < -1) {
+          camera.position.set(barco.position.x, barco.position.y + 1.5, barco.position.z);
+        }
+      }
+
+      // 3. Rotação da Câmera (Mouse)
       camera.rotation.set(pitch, yaw, 0, 'YXZ');
     }
 
