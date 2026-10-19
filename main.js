@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // ============================================================
-// REGIÕES (fallback)
+// REGIÕES (para botões de navegação)
 // ============================================================
 const REGIOES = {
   'Norte':        { lat: -4.0,  lon: -62.0, cor: 0x22c55e },
@@ -12,19 +12,6 @@ const REGIOES = {
   'Sul':          { lat: -27.0, lon: -51.0, cor: 0xa855f7 }
 };
 
-// Mapeamento UF → Região
-const UF_REGIAO = {
-  AC:'Norte', AM:'Norte', AP:'Norte', PA:'Norte', RO:'Norte', RR:'Norte', TO:'Norte',
-  AL:'Nordeste', BA:'Nordeste', CE:'Nordeste', MA:'Nordeste', PB:'Nordeste',
-  PE:'Nordeste', PI:'Nordeste', RN:'Nordeste', SE:'Nordeste',
-  DF:'Centro-Oeste', GO:'Centro-Oeste', MT:'Centro-Oeste', MS:'Centro-Oeste',
-  ES:'Sudeste', MG:'Sudeste', RJ:'Sudeste', SP:'Sudeste',
-  PR:'Sul', RS:'Sul', SC:'Sul'
-};
-
-// ============================================================
-// CONVERSÃO LAT/LON → CENA
-// ============================================================
 const LAT_MIN = -34, LAT_MAX = 6;
 const LON_MIN = -74, LON_MAX = -34;
 const SCALE_X = 30 / (LON_MAX - LON_MIN);
@@ -35,6 +22,16 @@ function latLonParaCena(lat, lon) {
   const z = -(lat - LAT_MIN) * SCALE_Z + 15;
   return new THREE.Vector3(x, 1.5, z);
 }
+
+// Cores por Estado
+const CORES_UF = {
+  AC:0x2e8b57, AL:0xf59e0b, AM:0x16a34a, AP:0x22c55e, BA:0xca8a04,
+  CE:0xea580c, DF:0xdc2626, ES:0x2563eb, GO:0xf97316, MA:0xfacc15,
+  MG:0x3b82f6, MS:0xdc2626, MT:0xf97316, PA:0x15803d, PB:0xfbbf24,
+  PE:0xef4444, PI:0xfde047, PR:0xa855f7, RJ:0x1d4ed8, RN:0xf59e0b,
+  RO:0x166534, RR:0x22c55e, RS:0x7c3aed, SC:0x9333ea, SE:0xfacc15,
+  SP:0x1e40af, TO:0xca8a04
+};
 
 // ============================================================
 // CENA
@@ -64,17 +61,11 @@ controls.maxDistance = 90;
 // ============================================================
 // LUZES
 // ============================================================
-scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.5);
 sun.position.set(25, 40, 25);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = -35;
-sun.shadow.camera.right = 35;
-sun.shadow.camera.top = 35;
-sun.shadow.camera.bottom = -35;
-sun.shadow.camera.near = 1;
-sun.shadow.camera.far = 100;
 scene.add(sun);
 const fill = new THREE.DirectionalLight(0x3b82f6, 0.4);
 fill.position.set(-20, 15, -20);
@@ -96,119 +87,77 @@ scene.add(ocean);
 const oceanOrig = Float32Array.from(oceanGeo.attributes.position.array);
 
 // ============================================================
-// PALETA DE CORES POR ESTADO
-// ============================================================
-const CORES_UF = {
-  AC:0x2e8b57, AL:0xf59e0b, AM:0x16a34a, AP:0x22c55e, BA:0xca8a04,
-  CE:0xea580c, DF:0xdc2626, ES:0x2563eb, GO:0xf97316, MA:0xfacc15,
-  MG:0x3b82f6, MS:0xdc2626, MT:0xf97316, PA:0x15803d, PB:0xfbbf24,
-  PE:0xef4444, PI:0xfde047, PR:0xa855f7, RJ:0x1d4ed8, RN:0xf59e0b,
-  RO:0x166534, RR:0x22c55e, RS:0x7c3aed, SC:0x9333ea, SE:0xfacc15,
-  SP:0x1e40af, TO:0xca8a04
-};
-
-// ============================================================
-// CARREGAR E DESENHAR ESTADOS (GeoJSON REAL)
+// MAPA REAL (Estados + Fronteiras Alinhadas)
 // ============================================================
 async function carregarEstados() {
   const resp = await fetch('data/estados.geojson');
   const geojson = await resp.json();
 
-  const grupo = new THREE.Group();
+  const grupoMapa = new THREE.Group();
+  const grupoBordas = new THREE.Group();
 
   for (const feature of geojson.features) {
-    const props = feature.properties;
-    const uf = (props.sigla || props.SIGLA || props.UF || props.abbrev || '').toUpperCase();
-    const nome = props.name || props.NAME || props.nome || uf;
+    const uf = (feature.properties.sigla || feature.properties.SIGLA || '').toUpperCase();
     if (!uf) continue;
-
+    
     const cor = CORES_UF[uf] ?? 0x22c55e;
+    const geo = feature.geometry;
+    const polygons = geo.type === 'Polygon' ? [geo.coordinates] : geo.type === 'MultiPolygon' ? geo.coordinates : [];
 
-    try {
-      const mesh = gerarMeshEstado(feature.geometry, cor);
-      if (mesh) {
-        mesh.userData = { uf, nome };
-        grupo.add(mesh);
-      }
-    } catch (e) {
-      console.warn('Erro no estado', uf, e);
-    }
-  }
+    for (const polygon of polygons) {
+      const outer = polygon[0];
+      const buracos = polygon.slice(1);
 
-  scene.add(grupo);
-
-  // Fronteiras brancas por cima
-  const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 });
-  for (const feature of geojson.features) {
-    const lines = gerarLinhasEstado(feature.geometry);
-    lines.forEach(line => {
-      line.material = lineMat;
-      grupo.add(line);
-    });
-  }
-}
-
-function gerarMeshEstado(geometry, cor) {
-  if (!geometry) return null;
-
-  const polygons = geometry.type === 'Polygon' ? [geometry.coordinates]
-    : geometry.type === 'MultiPolygon' ? geometry.coordinates
-    : [];
-
-  const group = new THREE.Group();
-
-  for (const polygon of polygons) {
-    const outer = polygon[0];
-    const buracos = polygon.slice(1);
-
-    const shape = new THREE.Shape();
-    outer.forEach(([lon, lat], i) => {
-      const p = latLonParaCena(lat, lon);
-      if (i === 0) shape.moveTo(p.x, -p.z);
-      else shape.lineTo(p.x, -p.z);
-    });
-
-    for (const hole of buracos) {
-      const path = new THREE.Path();
-      hole.forEach(([lon, lat], i) => {
+      const shape = new THREE.Shape();
+      outer.forEach(([lon, lat], i) => {
         const p = latLonParaCena(lat, lon);
-        if (i === 0) path.moveTo(p.x, -p.z);
-        else path.lineTo(p.x, -p.z);
+        if (i === 0) shape.moveTo(p.x, -p.z);
+        else shape.lineTo(p.x, -p.z);
       });
-      shape.holes.push(path);
+
+      // Adiciona buracos (se houver)
+      for (const hole of buracos) {
+        const path = new THREE.Path();
+        hole.forEach(([lon, lat], i) => {
+          const p = latLonParaCena(lat, lon);
+          if (i === 0) path.moveTo(p.x, -p.z);
+          else path.lineTo(p.x, -p.z);
+        });
+        shape.holes.push(path);
+      }
+
+      // 1. Mesh 3D do Estado
+      const geo3D = new THREE.ExtrudeGeometry(shape, { depth: 0.6, bevelEnabled: false });
+      geo3D.rotateX(-Math.PI / 2);
+      
+      const mesh = new THREE.Mesh(geo3D, new THREE.MeshStandardMaterial({
+        color: cor, roughness: 0.7, metalness: 0.1
+      }));
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      grupoMapa.add(mesh);
+
+      // 2. Linhas Perfeitas (ShapeGeometry plano no topo)
+      const geoLinha = new THREE.ShapeGeometry(shape);
+      geoLinha.rotateX(-Math.PI / 2);
+      
+      // Pega os vértices e converte para linha
+      const pos = geoLinha.attributes.position;
+      const points = [];
+      for (let i = 0; i < pos.count; i++) {
+        points.push(new THREE.Vector3(pos.getX(i), 0.61, pos.getZ(i)));
+      }
+      
+      const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+      const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ 
+        color: 0xffffff, transparent: true, opacity: 0.8, linewidth: 2 
+      }));
+      grupoBordas.add(line);
     }
-
-    const geo = new THREE.ExtrudeGeometry(shape, {
-      depth: 0.6, bevelEnabled: false
-    });
-    geo.rotateX(-Math.PI / 2);
-
-    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-      color: cor, roughness: 0.7, metalness: 0.1
-    }));
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
   }
 
-  return group;
-}
-
-function gerarLinhasEstado(geometry) {
-  const lines = [];
-  const coords = geometry.type === 'Polygon' ? geometry.coordinates
-    : geometry.type === 'MultiPolygon' ? geometry.coordinates.flat()
-    : [];
-
-  for (const ring of coords) {
-    const points = ring.map(([lon, lat]) => {
-      const p = latLonParaCena(lat, lon);
-      return new THREE.Vector3(p.x, 0.65, -p.z);
-    });
-    const geo = new THREE.BufferGeometry().setFromPoints(points);
-    lines.push(new THREE.Line(geo));
-  }
-  return lines;
+  scene.add(grupoMapa);
+  scene.add(grupoBordas);
 }
 
 // ============================================================
@@ -382,7 +331,7 @@ function voarPara(alvo, duracao = 2000, offset = new THREE.Vector3(0, 9, 11)) {
 }
 
 // ============================================================
-// MORADORES
+// MORADORES (Apenas leitura do JSON)
 // ============================================================
 let barco;
 const casas = [];
@@ -394,9 +343,13 @@ async function carregarMoradores() {
   try {
     const resp = await fetch('data/moradores.json?t=' + Date.now());
     const data = await resp.json();
+    
     for (const m of data.moradores || []) {
-      if (m.comentou) adicionarCasa(m);
-      else adicionarAoBarco(m);
+      if (m.comentou && m.lat && m.lon) {
+        adicionarCasa(m);
+      } else {
+        adicionarAoBarco(m);
+      }
     }
   } catch (e) {
     console.warn('Sem moradores ainda:', e);
@@ -406,15 +359,7 @@ async function carregarMoradores() {
 
 function adicionarCasa(m) {
   const casa = criarCasa(m.foto, m.usuario, m.nome);
-
-  let pos;
-  if (m.lat && m.lon) {
-    pos = latLonParaCena(m.lat, m.lon);
-  } else if (m.uf && REGIOES[UF_REGIAO[m.uf]]) {
-    pos = latLonParaCena(REGIOES[UF_REGIAO[m.uf]].lat, REGIOES[UF_REGIAO[m.uf]].lon);
-  } else {
-    pos = new THREE.Vector3(0, 1.5, 0);
-  }
+  const pos = latLonParaCena(m.lat, m.lon);
 
   casa.position.copy(pos);
   casa.position.y = 1.2;
