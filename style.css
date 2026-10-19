@@ -78,5 +78,42 @@ html, body {
 }
 .tooltip strong { color: #4ade80; }
 
-/* Cursor de clique nos estados */
-.pointer { cursor: pointer; }
+/* ==========================================
+   INTERFACE DO NAVIO (CHAT / RÁDIO)
+   ========================================== */
+#ship-ui {
+  position: fixed; bottom: 80px; right: 20px;
+  width: 320px; background: rgba(15,23,42,0.9);
+  border: 1px solid rgba(34,197,94,0.4);
+  border-radius: 16px; display: none;
+  flex-direction: column; z-index: 50;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+  backdrop-filter: blur(10px);
+}
+#ship-ui.active { display: flex; }
+#ship-header {
+  background: rgba(34,197,94,0.2); padding: 10px 15px;
+  border-radius: 16px 16px 0 0; font-weight: bold; color: #4ade80;
+  display: flex; justify-content: space-between; align-items: center;
+}
+#chat-messages {
+  height: 200px; overflow-y: auto; padding: 10px;
+  display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem;
+}
+.chat-msg { color: #e2e8f0; background: rgba(255,255,255,0.05); padding: 6px 10px; border-radius: 8px; }
+.chat-msg strong { color: #60a5fa; }
+#chat-input-area { display: flex; padding: 10px; gap: 8px; border-top: 1px solid rgba(255,255,255,0.1); }
+#chat-input { flex: 1; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 8px; border-radius: 8px; outline: none; }
+#chat-send { background: #22c55e; border: none; color: white; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+
+#customize-panel {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: rgba(15,23,42,0.95); border: 2px solid #22c55e;
+  border-radius: 16px; padding: 20px; z-index: 60; display: none;
+  flex-direction: column; gap: 15px; color: white; width: 300px;
+}
+#customize-panel.active { display: flex; }
+#customize-panel h3 { text-align: center; color: #4ade80; }
+#customize-panel label { font-size: 0.9rem; margin-bottom: 5px; display: block; }
+#customize-panel input[type="color"] { width: 100%; height: 40px; border: none; border-radius: 8px; cursor: pointer; }
+#customize-panel button { background: #22c55e; border: none; color: white; padding: 10px; border-radius: 8px; cursor: pointer; font-weight: bold; margin-top: 10px; }
