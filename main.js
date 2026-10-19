@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // ============================================================
-// CONFIGURAÇÃO DAS REGIÕES
+// REGIÕES (fallback)
 // ============================================================
 const REGIOES = {
   'Norte':        { lat: -4.0,  lon: -62.0, cor: 0x22c55e },
@@ -12,7 +12,19 @@ const REGIOES = {
   'Sul':          { lat: -27.0, lon: -51.0, cor: 0xa855f7 }
 };
 
-// Coordenadas de referência para conversão lat/lon → cena
+// Mapeamento UF → Região
+const UF_REGIAO = {
+  AC:'Norte', AM:'Norte', AP:'Norte', PA:'Norte', RO:'Norte', RR:'Norte', TO:'Norte',
+  AL:'Nordeste', BA:'Nordeste', CE:'Nordeste', MA:'Nordeste', PB:'Nordeste',
+  PE:'Nordeste', PI:'Nordeste', RN:'Nordeste', SE:'Nordeste',
+  DF:'Centro-Oeste', GO:'Centro-Oeste', MT:'Centro-Oeste', MS:'Centro-Oeste',
+  ES:'Sudeste', MG:'Sudeste', RJ:'Sudeste', SP:'Sudeste',
+  PR:'Sul', RS:'Sul', SC:'Sul'
+};
+
+// ============================================================
+// CONVERSÃO LAT/LON → CENA
+// ============================================================
 const LAT_MIN = -34, LAT_MAX = 6;
 const LON_MIN = -74, LON_MAX = -34;
 const SCALE_X = 30 / (LON_MAX - LON_MIN);
@@ -25,17 +37,17 @@ function latLonParaCena(lat, lon) {
 }
 
 // ============================================================
-// CENA / CÂMERA / RENDERER
+// CENA
 // ============================================================
 const app = document.getElementById('app');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0e1a);
-scene.fog = new THREE.Fog(0x0a0e1a, 40, 110);
+scene.fog = new THREE.Fog(0x0a0e1a, 45, 130);
 
 const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 500);
 camera.position.set(0, 30, 45);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
@@ -46,15 +58,13 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 controls.maxPolarAngle = Math.PI / 2.05;
-controls.minDistance = 15;
-controls.maxDistance = 80;
-controls.target.set(0, 0, 0);
+controls.minDistance = 12;
+controls.maxDistance = 90;
 
 // ============================================================
 // LUZES
 // ============================================================
 scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-
 const sun = new THREE.DirectionalLight(0xffffff, 1.6);
 sun.position.set(25, 40, 25);
 sun.castShadow = true;
@@ -66,13 +76,12 @@ sun.shadow.camera.bottom = -35;
 sun.shadow.camera.near = 1;
 sun.shadow.camera.far = 100;
 scene.add(sun);
-
 const fill = new THREE.DirectionalLight(0x3b82f6, 0.4);
 fill.position.set(-20, 15, -20);
 scene.add(fill);
 
 // ============================================================
-// OCEANO COM ONDAS
+// OCEANO
 // ============================================================
 const oceanGeo = new THREE.PlaneGeometry(200, 200, 80, 80);
 const oceanMat = new THREE.MeshPhongMaterial({
@@ -84,103 +93,123 @@ ocean.rotation.x = -Math.PI / 2;
 ocean.position.y = -0.3;
 ocean.receiveShadow = true;
 scene.add(ocean);
-
 const oceanOrig = Float32Array.from(oceanGeo.attributes.position.array);
 
 // ============================================================
-// MAPA REAL DO BRASIL (silhueta simplificada oficial)
-// Pontos extraídos de um SVG do IBGE (simplificado)
+// PALETA DE CORES POR ESTADO
 // ============================================================
-const BRASIL_PONTOS = [
-  // Norte / Amazônia
-  [-69.5, 0.5], [-69.0, -1.0], [-67.5, -2.5], [-65.0, -4.0],
-  [-62.5, -5.0], [-60.0, -6.5], [-58.0, -7.5], [-56.0, -8.0],
-  // Nordeste (litoral norte)
-  [-53.0, -7.5], [-50.0, -6.0], [-48.0, -3.5], [-46.0, -2.5],
-  [-44.0, -2.0], [-41.5, -2.8], [-39.0, -3.5], [-37.0, -5.0],
-  [-35.5, -7.0], [-35.0, -9.0], [-36.0, -11.0], [-37.5, -12.5],
-  // Litoral leste / Sudeste
-  [-38.5, -14.0], [-39.0, -16.0], [-40.0, -18.0], [-40.5, -20.0],
-  [-42.0, -22.0], [-44.0, -23.0], [-46.5, -24.0], [-48.0, -25.5],
-  // Sul
-  [-48.5, -27.0], [-49.0, -29.0], [-50.5, -30.5], [-52.0, -32.0],
-  [-53.5, -33.5], [-54.5, -34.0],
-  // Fronteira sul/oeste
-  [-56.0, -33.0], [-57.5, -31.0], [-57.0, -29.0], [-55.0, -27.0],
-  [-54.5, -25.5], [-54.0, -24.0], [-57.0, -22.5], [-58.0, -21.0],
-  [-58.0, -19.5], [-58.5, -17.0], [-60.0, -15.0], [-62.5, -13.0],
-  [-65.0, -11.0], [-67.0, -10.0], [-70.0, -9.5], [-71.5, -8.0],
-  [-73.0, -7.5], [-73.5, -6.0], [-72.5, -4.0], [-71.0, -2.5],
-  [-70.0, -1.0]
-];
+const CORES_UF = {
+  AC:0x2e8b57, AL:0xf59e0b, AM:0x16a34a, AP:0x22c55e, BA:0xca8a04,
+  CE:0xea580c, DF:0xdc2626, ES:0x2563eb, GO:0xf97316, MA:0xfacc15,
+  MG:0x3b82f6, MS:0xdc2626, MT:0xf97316, PA:0x15803d, PB:0xfbbf24,
+  PE:0xef4444, PI:0xfde047, PR:0xa855f7, RJ:0x1d4ed8, RN:0xf59e0b,
+  RO:0x166534, RR:0x22c55e, RS:0x7c3aed, SC:0x9333ea, SE:0xfacc15,
+  SP:0x1e40af, TO:0xca8a04
+};
 
-function criarMapaBrasil() {
-  // Converte lat/lon → coordenadas da cena
-  const pontos = BRASIL_PONTOS.map(([lon, lat]) => {
-    const x = (lon - LON_MIN) * SCALE_X - 15;
-    const z = -(lat - LAT_MIN) * SCALE_Z + 15;
-    return [x, -z]; // Shape usa XY, depois rotacionamos
-  });
+// ============================================================
+// CARREGAR E DESENHAR ESTADOS (GeoJSON REAL)
+// ============================================================
+async function carregarEstados() {
+  const resp = await fetch('data/estados.geojson');
+  const geojson = await resp.json();
 
-  const shape = new THREE.Shape();
-  pontos.forEach(([x, z], i) => {
-    if (i === 0) shape.moveTo(x, z);
-    else shape.lineTo(x, z);
-  });
-  shape.closePath();
+  const grupo = new THREE.Group();
 
-  const extrudeGeo = new THREE.ExtrudeGeometry(shape, {
-    depth: 1.0,
-    bevelEnabled: true,
-    bevelSize: 0.15,
-    bevelThickness: 0.15,
-    bevelSegments: 2
-  });
-  extrudeGeo.rotateX(-Math.PI / 2);
-  extrudeGeo.translate(0, 0.5, 0);
+  for (const feature of geojson.features) {
+    const props = feature.properties;
+    const uf = (props.sigla || props.SIGLA || props.UF || props.abbrev || '').toUpperCase();
+    const nome = props.name || props.NAME || props.nome || uf;
+    if (!uf) continue;
 
-  // Base verde
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0x1f8a4c, roughness: 0.75, metalness: 0.05
-  });
-  const mapa = new THREE.Mesh(extrudeGeo, mat);
-  mapa.castShadow = true;
-  mapa.receiveShadow = true;
-  scene.add(mapa);
+    const cor = CORES_UF[uf] ?? 0x22c55e;
 
-  // Contorno brilhante
-  const edges = new THREE.EdgesGeometry(extrudeGeo);
-  const line = new THREE.LineSegments(
-    edges,
-    new THREE.LineBasicMaterial({ color: 0x4ade80, linewidth: 2 })
-  );
-  scene.add(line);
+    try {
+      const mesh = gerarMeshEstado(feature.geometry, cor);
+      if (mesh) {
+        mesh.userData = { uf, nome };
+        grupo.add(mesh);
+      }
+    } catch (e) {
+      console.warn('Erro no estado', uf, e);
+    }
+  }
 
-  // Marcadores de região (cilindros finos coloridos)
-  Object.entries(REGIOES).forEach(([nome, cfg]) => {
-    const pos = latLonParaCena(cfg.lat, cfg.lon);
-    const marcador = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.3, 0.3, 0.15, 16),
-      new THREE.MeshBasicMaterial({ color: cfg.cor, transparent: true, opacity: 0.8 })
-    );
-    marcador.position.copy(pos);
-    marcador.position.y = 1.1;
-    scene.add(marcador);
+  scene.add(grupo);
 
-    // Anel pulsante
-    const anel = new THREE.Mesh(
-      new THREE.RingGeometry(0.35, 0.45, 32),
-      new THREE.MeshBasicMaterial({ color: cfg.cor, side: THREE.DoubleSide, transparent: true, opacity: 0.6 })
-    );
-    anel.rotation.x = -Math.PI / 2;
-    anel.position.copy(pos);
-    anel.position.y = 1.15;
-    anel.userData.pulse = true;
-    scene.add(anel);
-  });
+  // Fronteiras brancas por cima
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 });
+  for (const feature of geojson.features) {
+    const lines = gerarLinhasEstado(feature.geometry);
+    lines.forEach(line => {
+      line.material = lineMat;
+      grupo.add(line);
+    });
+  }
 }
 
-criarMapaBrasil();
+function gerarMeshEstado(geometry, cor) {
+  if (!geometry) return null;
+
+  const polygons = geometry.type === 'Polygon' ? [geometry.coordinates]
+    : geometry.type === 'MultiPolygon' ? geometry.coordinates
+    : [];
+
+  const group = new THREE.Group();
+
+  for (const polygon of polygons) {
+    const outer = polygon[0];
+    const buracos = polygon.slice(1);
+
+    const shape = new THREE.Shape();
+    outer.forEach(([lon, lat], i) => {
+      const p = latLonParaCena(lat, lon);
+      if (i === 0) shape.moveTo(p.x, -p.z);
+      else shape.lineTo(p.x, -p.z);
+    });
+
+    for (const hole of buracos) {
+      const path = new THREE.Path();
+      hole.forEach(([lon, lat], i) => {
+        const p = latLonParaCena(lat, lon);
+        if (i === 0) path.moveTo(p.x, -p.z);
+        else path.lineTo(p.x, -p.z);
+      });
+      shape.holes.push(path);
+    }
+
+    const geo = new THREE.ExtrudeGeometry(shape, {
+      depth: 0.6, bevelEnabled: false
+    });
+    geo.rotateX(-Math.PI / 2);
+
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+      color: cor, roughness: 0.7, metalness: 0.1
+    }));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+
+  return group;
+}
+
+function gerarLinhasEstado(geometry) {
+  const lines = [];
+  const coords = geometry.type === 'Polygon' ? geometry.coordinates
+    : geometry.type === 'MultiPolygon' ? geometry.coordinates.flat()
+    : [];
+
+  for (const ring of coords) {
+    const points = ring.map(([lon, lat]) => {
+      const p = latLonParaCena(lat, lon);
+      return new THREE.Vector3(p.x, 0.65, -p.z);
+    });
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    lines.push(new THREE.Line(geo));
+  }
+  return lines;
+}
 
 // ============================================================
 // CASA 3D
@@ -188,27 +217,23 @@ criarMapaBrasil();
 function criarCasa(fotoURL, usuario, nome) {
   const grupo = new THREE.Group();
 
-  // Base
   const base = new THREE.Mesh(
     new THREE.BoxGeometry(1.3, 1, 1.3),
     new THREE.MeshStandardMaterial({ color: 0xf5f5dc, roughness: 0.8 })
   );
   base.position.y = 0.5;
-  base.castShadow = true;
-  base.receiveShadow = true;
+  base.castShadow = base.receiveShadow = true;
   grupo.add(base);
 
-  // Telhado
   const telhado = new THREE.Mesh(
     new THREE.ConeGeometry(1.15, 0.9, 4),
-    new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.7 })
+    new THREE.MeshStandardMaterial({ color: 0xd97706 })
   );
   telhado.position.y = 1.45;
   telhado.rotation.y = Math.PI / 4;
   telhado.castShadow = true;
   grupo.add(telhado);
 
-  // Porta
   const porta = new THREE.Mesh(
     new THREE.BoxGeometry(0.32, 0.6, 0.05),
     new THREE.MeshStandardMaterial({ color: 0x78350f })
@@ -216,20 +241,11 @@ function criarCasa(fotoURL, usuario, nome) {
   porta.position.set(0, 0.3, 0.66);
   grupo.add(porta);
 
-  // Foto na fachada
-  const textureLoader = new THREE.TextureLoader();
-  let textura;
-  try {
-    textura = textureLoader.load(fotoURL);
-  } catch (e) {
-    textura = null;
-  }
-
-  const placaMat = new THREE.MeshBasicMaterial({ transparent: true });
-  if (textura) {
-    placaMat.map = textura;
+  let placaMat;
+  if (fotoURL) {
+    placaMat = new THREE.MeshBasicMaterial({ transparent: true });
+    placaMat.map = new THREE.TextureLoader().load(fotoURL);
   } else {
-    // Fallback: inicial do usuário
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 128;
     const ctx = canvas.getContext('2d');
@@ -239,17 +255,16 @@ function criarCasa(fotoURL, usuario, nome) {
     ctx.font = 'bold 64px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText((usuario[1] || '?').toUpperCase(), 64, 92);
-    placaMat.map = new THREE.CanvasTexture(canvas);
+    placaMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas) });
   }
 
   const placa = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.65), placaMat);
   placa.position.set(0, 1.05, 0.66);
   grupo.add(placa);
 
-  // Mastro com bandeira
   const mastro = new THREE.Mesh(
     new THREE.CylinderGeometry(0.025, 0.025, 0.9),
-    new THREE.MeshStandardMaterial({ color: 0x444444 })
+    new THREE.MeshStandardMaterial({ color: 0x444 })
   );
   mastro.position.y = 2.3;
   grupo.add(mastro);
@@ -267,35 +282,25 @@ function criarCasa(fotoURL, usuario, nome) {
 }
 
 // ============================================================
-// BARCO "POSSÍVEIS MORADORES"
+// BARCO
 // ============================================================
 function criarBarco() {
   const barco = new THREE.Group();
 
   const casco = new THREE.Mesh(
     new THREE.BoxGeometry(3, 0.6, 1.6),
-    new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.9 })
+    new THREE.MeshStandardMaterial({ color: 0x8b4513 })
   );
   casco.position.y = 0.3;
   casco.castShadow = true;
   barco.add(casco);
 
-  const proa = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.8, 0.8, 0.6, 16, 1, false, 0, Math.PI),
-    new THREE.MeshStandardMaterial({ color: 0x8b4513 })
-  );
-  proa.rotation.z = Math.PI / 2;
-  proa.position.set(1.5, 0.3, 0);
-  barco.add(proa);
-
-  // Placa principal
   const canvas = document.createElement('canvas');
   canvas.width = 512; canvas.height = 128;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#0a0e1a';
   ctx.fillRect(0, 0, 512, 128);
-  ctx.strokeStyle = '#22c55e';
-  ctx.lineWidth = 4;
+  ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 4;
   ctx.strokeRect(4, 4, 504, 120);
   ctx.fillStyle = '#22c55e';
   ctx.font = 'bold 34px sans-serif';
@@ -305,60 +310,32 @@ function criarBarco() {
   ctx.fillStyle = '#94a3b8';
   ctx.fillText('aguardando comentário...', 256, 90);
 
-  const textura = new THREE.CanvasTexture(canvas);
   const placa = new THREE.Mesh(
     new THREE.PlaneGeometry(4, 1),
-    new THREE.MeshBasicMaterial({ map: textura, side: THREE.DoubleSide })
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), side: THREE.DoubleSide })
   );
   placa.position.set(0, 1.6, 0);
   barco.add(placa);
 
   const mastro = new THREE.Mesh(
     new THREE.CylinderGeometry(0.05, 0.05, 1.6),
-    new THREE.MeshStandardMaterial({ color: 0x333333 })
+    new THREE.MeshStandardMaterial({ color: 0x333 })
   );
   mastro.position.set(-1.8, 0.8, 0);
   barco.add(mastro);
 
-  // Posição inicial: no mar, à direita do Brasil
   barco.position.set(22, 0, 5);
   barco.userData = { passageiros: [] };
   return barco;
 }
 
 // ============================================================
-// ANIMAÇÃO DE CÂMERA (voa até posição)
-// ============================================================
-let camAnim = null;
-
-function voarPara(alvo, duracao = 2000, offset = new THREE.Vector3(0, 9, 11)) {
-  const startPos = camera.position.clone();
-  const startTarget = controls.target.clone();
-  const destinoCam = alvo.clone().add(offset);
-  const inicio = performance.now();
-
-  camAnim = () => {
-    const t = Math.min((performance.now() - inicio) / duracao, 1);
-    const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-
-    camera.position.lerpVectors(startPos, destinoCam, ease);
-    controls.target.lerpVectors(startTarget, alvo, ease);
-    controls.update();
-
-    if (t >= 1) camAnim = null;
-  };
-}
-
-// ============================================================
-// VOZ (TTS) — CORRIGIDO COM BOTÃO
+// VOZ
 // ============================================================
 let vozAtivada = false;
 let vozesDisponiveis = [];
 
-function carregarVozes() {
-  vozesDisponiveis = speechSynthesis.getVoices();
-}
-
+function carregarVozes() { vozesDisponiveis = speechSynthesis.getVoices(); }
 if ('speechSynthesis' in window) {
   carregarVozes();
   speechSynthesis.onvoiceschanged = carregarVozes;
@@ -369,95 +346,99 @@ btnVoz.addEventListener('click', () => {
   vozAtivada = true;
   btnVoz.textContent = '🔊 Voz Ativada';
   btnVoz.classList.add('ativo');
-  // Fala de teste (desbloqueia a síntese)
   falar('Voz ativada! Bem-vindo ao Brasil 3D.');
 });
 
 function falar(texto) {
-  if (!vozAtivada) return;
-  if (!('speechSynthesis' in window)) return;
-
+  if (!vozAtivada || !('speechSynthesis' in window)) return;
   speechSynthesis.cancel();
   const utt = new SpeechSynthesisUtterance(texto);
   utt.lang = 'pt-BR';
   utt.rate = 1.0;
   utt.pitch = 1.1;
-  utt.volume = 1.0;
-
   const vozBR = vozesDisponiveis.find(v => v.lang === 'pt-BR')
               || vozesDisponiveis.find(v => v.lang.startsWith('pt'));
   if (vozBR) utt.voice = vozBR;
-
   speechSynthesis.speak(utt);
 }
 
 // ============================================================
-// POPULAR O MUNDO
+// CÂMERA ANIMADA
+// ============================================================
+let camAnim = null;
+function voarPara(alvo, duracao = 2000, offset = new THREE.Vector3(0, 9, 11)) {
+  const startPos = camera.position.clone();
+  const startTarget = controls.target.clone();
+  const destino = alvo.clone().add(offset);
+  const inicio = performance.now();
+  camAnim = () => {
+    const t = Math.min((performance.now() - inicio) / duracao, 1);
+    const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    camera.position.lerpVectors(startPos, destino, ease);
+    controls.target.lerpVectors(startTarget, alvo, ease);
+    controls.update();
+    if (t >= 1) camAnim = null;
+  };
+}
+
+// ============================================================
+// MORADORES
 // ============================================================
 let barco;
 const casas = [];
 
 async function carregarMoradores() {
+  barco = criarBarco();
+  scene.add(barco);
+
   try {
     const resp = await fetch('data/moradores.json?t=' + Date.now());
     const data = await resp.json();
-
-    barco = criarBarco();
-    scene.add(barco);
-
-    for (const m of data.moradores) {
-      if (m.comentou) {
-        adicionarCasa(m);
-      } else {
-        adicionarAoBarco(m);
-      }
+    for (const m of data.moradores || []) {
+      if (m.comentou) adicionarCasa(m);
+      else adicionarAoBarco(m);
     }
-    atualizarStats();
-  } catch (err) {
-    console.error('Erro ao carregar moradores:', err);
-    // Mesmo com erro, cria o barco
-    barco = criarBarco();
-    scene.add(barco);
+  } catch (e) {
+    console.warn('Sem moradores ainda:', e);
   }
+  atualizarStats();
 }
 
-function adicionarCasa(morador) {
-  const casa = criarCasa(morador.foto, morador.usuario, morador.nome);
-  const pos = latLonParaCena(
-    REGIOES[morador.regiao].lat,
-    REGIOES[morador.regiao].lon
-  );
+function adicionarCasa(m) {
+  const casa = criarCasa(m.foto, m.usuario, m.nome);
+
+  let pos;
+  if (m.lat && m.lon) {
+    pos = latLonParaCena(m.lat, m.lon);
+  } else if (m.uf && REGIOES[UF_REGIAO[m.uf]]) {
+    pos = latLonParaCena(REGIOES[UF_REGIAO[m.uf]].lat, REGIOES[UF_REGIAO[m.uf]].lon);
+  } else {
+    pos = new THREE.Vector3(0, 1.5, 0);
+  }
+
   casa.position.copy(pos);
   casa.position.y = 1.2;
+  casa.position.x += (Math.random() - 0.5) * 1.5;
+  casa.position.z += (Math.random() - 0.5) * 1.5;
 
-  // Espalhamento para não sobrepor
-  casa.position.x += (Math.random() - 0.5) * 3;
-  casa.position.z += (Math.random() - 0.5) * 3;
-
-  // Estado inicial: caindo do céu
   casa.position.y = 18;
   casa.scale.setScalar(0.01);
   scene.add(casa);
   casas.push(casa);
 
-  // Animação de entrada
   const inicio = performance.now();
-  const animEntrada = () => {
+  const anim = () => {
     const t = Math.min((performance.now() - inicio) / 1000, 1);
     const ease = 1 - Math.pow(1 - t, 3);
     casa.position.y = 18 + (1.2 - 18) * ease;
     casa.scale.setScalar(ease);
-    if (t < 1) requestAnimationFrame(animEntrada);
+    if (t < 1) requestAnimationFrame(anim);
   };
-  animEntrada();
-
-  return casa;
+  anim();
 }
 
-function adicionarAoBarco(morador) {
+function adicionarAoBarco(m) {
   const idx = barco.userData.passageiros.length;
-
-  // Avatar (esfera colorida)
   const avatar = new THREE.Mesh(
     new THREE.SphereGeometry(0.28, 16, 16),
     new THREE.MeshStandardMaterial({ color: 0x22c55e })
@@ -467,31 +448,26 @@ function adicionarAoBarco(morador) {
     0.95 + Math.floor(idx / 5) * 0.55,
     0.4
   );
-  avatar.castShadow = true;
   barco.add(avatar);
 
-  // Balão com nome
   const canvas = document.createElement('canvas');
   canvas.width = 256; canvas.height = 64;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = 'rgba(0,0,0,0.85)';
-  ctx.beginPath();
-  ctx.roundRect?.(4, 4, 248, 56, 12);
   ctx.fillRect(4, 4, 248, 56);
   ctx.fillStyle = '#4ade80';
   ctx.font = 'bold 20px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(morador.usuario, 128, 38);
+  ctx.fillText(m.usuario, 128, 38);
 
-  const tex = new THREE.CanvasTexture(canvas);
-  const sprite = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: tex, depthTest: false })
-  );
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(canvas), depthTest: false
+  }));
   sprite.scale.set(1.6, 0.4, 1);
   sprite.position.copy(avatar.position).add(new THREE.Vector3(0, 0.55, 0));
   barco.add(sprite);
 
-  barco.userData.passageiros.push(morador);
+  barco.userData.passageiros.push(m);
 }
 
 function atualizarStats() {
@@ -506,51 +482,36 @@ function atualizarStats() {
 document.querySelectorAll('#legenda button').forEach(btn => {
   btn.addEventListener('click', () => {
     const regiao = btn.dataset.regiao;
-
     if (regiao === 'BRASIL') {
       voarPara(new THREE.Vector3(0, 1.5, 0), 1800, new THREE.Vector3(0, 22, 32));
       return;
     }
-
     const cfg = REGIOES[regiao];
     if (!cfg) return;
-    const pos = latLonParaCena(cfg.lat, cfg.lon);
-    voarPara(pos, 1600);
-
-    // Fala ao clicar
-    if (vozAtivada) {
-      setTimeout(() => falar(`Região ${regiao}!`), 200);
-    }
+    voarPara(latLonParaCena(cfg.lat, cfg.lon), 1600);
+    if (vozAtivada) setTimeout(() => falar(`Região ${regiao}!`), 200);
   });
 });
 
 // ============================================================
-// RAYCASTER — Tooltip ao passar o mouse nas casas
+// TOOLTIP
 // ============================================================
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
-let tooltipEl = null;
+const tooltipEl = document.createElement('div');
+tooltipEl.className = 'tooltip';
+tooltipEl.style.display = 'none';
+document.body.appendChild(tooltipEl);
 
-function criarTooltip() {
-  tooltipEl = document.createElement('div');
-  tooltipEl.className = 'tooltip';
-  tooltipEl.style.display = 'none';
-  document.body.appendChild(tooltipEl);
-}
-criarTooltip();
-
-addEventListener('mousemove', (e) => {
+addEventListener('mousemove', e => {
   mouse.x = (e.clientX / innerWidth) * 2 - 1;
   mouse.y = -(e.clientY / innerHeight) * 2 + 1;
-
   raycaster.setFromCamera(mouse, camera);
   const hits = raycaster.intersectObjects(casas, true);
 
   if (hits.length > 0) {
-    // Encontra a casa raiz
     let obj = hits[0].object;
     while (obj.parent && !obj.userData.usuario) obj = obj.parent;
-
     if (obj.userData.usuario) {
       tooltipEl.innerHTML = `<strong>${obj.userData.usuario}</strong> · ${obj.userData.nome}`;
       tooltipEl.style.left = e.clientX + 'px';
@@ -563,79 +524,57 @@ addEventListener('mousemove', (e) => {
 });
 
 // ============================================================
-// LOOP DE RENDERIZAÇÃO
+// LOOP
 // ============================================================
 const clock = new THREE.Clock();
-
 function animar() {
   requestAnimationFrame(animar);
   const t = clock.getElapsedTime();
 
-  // Ondas do oceano
   const pos = ocean.geometry.attributes.position;
   for (let i = 0; i < pos.count; i++) {
-    const x = oceanOrig[i * 3];
-    const y = oceanOrig[i * 3 + 1];
-    pos.array[i * 3 + 2] = Math.sin(x * 0.25 + t) * 0.3
-                         + Math.cos(y * 0.25 + t * 0.8) * 0.2;
+    const x = oceanOrig[i * 3], y = oceanOrig[i * 3 + 1];
+    pos.array[i * 3 + 2] = Math.sin(x * 0.25 + t) * 0.3 + Math.cos(y * 0.25 + t * 0.8) * 0.2;
   }
   pos.needsUpdate = true;
   ocean.geometry.computeVertexNormals();
 
-  // Balanço do barco
   if (barco) {
     barco.position.y = Math.sin(t * 1.1) * 0.15;
     barco.rotation.z = Math.sin(t * 0.9) * 0.04;
   }
 
-  // Bandeiras animadas
-  casas.forEach(c => {
-    c.children.forEach(child => {
-      if (child.userData.bandeira) {
-        child.rotation.y = Math.sin(t * 3 + c.position.x) * 0.35;
-      }
-    });
-  });
-
-  // Pulsar dos anéis de região
-  scene.traverse(obj => {
-    if (obj.userData.pulse) {
-      const s = 1 + Math.sin(t * 2) * 0.3;
-      obj.scale.set(s, s, s);
-      obj.material.opacity = 0.4 + Math.sin(t * 2) * 0.3;
-    }
-  });
+  casas.forEach(c => c.children.forEach(ch => {
+    if (ch.userData.bandeira) ch.rotation.y = Math.sin(t * 3 + c.position.x) * 0.35;
+  }));
 
   if (camAnim) camAnim();
   controls.update();
   renderer.render(scene, camera);
 }
 
-// ============================================================
-// RESIZE + INIT
-// ============================================================
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
 
-// Inicialização
-carregarMoradores().then(() => {
+// ============================================================
+// INIT
+// ============================================================
+(async () => {
+  try {
+    await carregarEstados();
+  } catch (e) {
+    console.error('Erro ao carregar estados:', e);
+    alert('Erro ao carregar o mapa. Verifique se data/estados.geojson existe.');
+  }
+  await carregarMoradores();
   document.getElementById('loading').classList.add('hide');
   animar();
 
-  // Voo inicial: entra pelo mar e pousa no Brasil
   camera.position.set(35, 30, 45);
   setTimeout(() => {
     voarPara(new THREE.Vector3(0, 1.5, 0), 2500, new THREE.Vector3(0, 22, 32));
   }, 200);
-
-  // Se já tem moradores, fala o primeiro
-  setTimeout(() => {
-    if (vozAtivada && casas.length > 0) {
-      const primeiro = casas[0].userData;
-      falar(`Obrigado por seguir ${primeiro.nome}, seja bem-vindo ao nosso Brasil!`);
-    }
-  }, 3000);
-});
+})();
