@@ -1,1 +1,83 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>⚙️ Admin — Brasil 3D</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="admin">
+  <div class="admin-container">
+    <a href="index.html" class="voltar">← Voltar ao mapa</a>
+    <h1>⚙️ Adicionar Morador</h1>
 
+    <label>Nome completo</label>
+    <input id="nome" placeholder="Ex: João Silva" />
+
+    <label>Usuário do Instagram</label>
+    <input id="usuario" placeholder="Ex: @joaosilva" />
+
+    <label>Região</label>
+    <select id="regiao">
+      <option value="Norte">Norte</option>
+      <option value="Nordeste">Nordeste</option>
+      <option value="Centro-Oeste">Centro-Oeste</option>
+      <option value="Sudeste" selected>Sudeste</option>
+      <option value="Sul">Sul</option>
+    </select>
+
+    <label>URL da foto (ou caminho em assets/)</label>
+    <input id="foto" placeholder="Ex: assets/joao.jpg" />
+
+    <label>
+      <input type="checkbox" id="comentou" checked style="width:auto;margin-right:8px;" />
+      Comentou a região (ganha casa) — desmarque para o barco
+    </label>
+
+    <button id="btnGerar">📋 Gerar JSON do morador</button>
+
+    <div id="preview" style="display:none;"></div>
+
+    <div class="aviso">
+      <strong>⚠️ Como usar:</strong><br/>
+      1. Preencha os dados<br/>
+      2. Clique em "Gerar JSON"<br/>
+      3. Copie o JSON gerado<br/>
+      4. Abra <code>data/moradores.json</code> no GitHub<br/>
+      5. Cole dentro do array <code>moradores</code><br/>
+      6. Faça commit — o site atualiza em ~1 min
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('btnGerar').addEventListener('click', () => {
+      const morador = {
+        nome: document.getElementById('nome').value.trim(),
+        usuario: document.getElementById('usuario').value.trim(),
+        regiao: document.getElementById('regiao').value,
+        foto: document.getElementById('foto').value.trim(),
+        comentou: document.getElementById('comentou').checked
+      };
+
+      if (!morador.nome || !morador.usuario) {
+        alert('Preencha nome e usuário!');
+        return;
+      }
+
+      const preview = document.getElementById('preview');
+      preview.style.display = 'block';
+      preview.textContent = JSON.stringify(morador, null, 2);
+
+      // Botão de copiar
+      const btnCopiar = document.createElement('button');
+      btnCopiar.textContent = '📋 Copiar JSON';
+      btnCopiar.style.marginTop = '12px';
+      btnCopiar.onclick = () => {
+        navigator.clipboard.writeText(preview.textContent);
+        btnCopiar.textContent = '✅ Copiado!';
+        setTimeout(() => btnCopiar.textContent = '📋 Copiar JSON', 1500);
+      };
+      preview.appendChild(btnCopiar);
+    });
+  </script>
+</body>
+</html>
