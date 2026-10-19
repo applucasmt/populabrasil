@@ -42,7 +42,6 @@ const CORES_UF = {
 // ============================================================
 const app = document.getElementById('app');
 const scene = new THREE.Scene();
-// FOV inicial 45 (visão de mapa)
 const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 1000);
 camera.position.set(0, 30, 45);
 
@@ -63,7 +62,7 @@ controls.minDistance = 10;
 controls.maxDistance = 100;
 
 // ============================================================
-// CÉU E LUZES REALISTAS
+// CÉU E LUZES
 // ============================================================
 const sky = new Sky();
 sky.scale.setScalar(45000);
@@ -110,7 +109,7 @@ water.position.y = -0.3;
 scene.add(water);
 
 // ============================================================
-// MAPA DO BRASIL
+// MAPA
 // ============================================================
 const grupoMapa = new THREE.Group();
 const grupoBordas = new THREE.Group();
@@ -227,7 +226,7 @@ function criarCasa(fotoURL, usuario, nome) {
 }
 
 // ============================================================
-// BARCO (Marcado para física)
+// BARCO
 // ============================================================
 let barco;
 let collidersBarco = [];
@@ -253,18 +252,12 @@ async function criarBarco() {
       adicionarItensAoBarco();
       resolve(barco);
     }, undefined, () => {
+      // Fallback
       barco = new THREE.Group();
       const matMad = new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.8 });
-      const matVel = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, side: THREE.DoubleSide });
-      
       const casco = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.6, 1.4), matMad);
       casco.position.y = 0.3; casco.castShadow = true; casco.userData.isBarco = true; barco.add(casco);
       collidersBarco.push(casco);
-      
-      const cabine = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.9), matMad);
-      cabine.position.set(-0.8, 0.9, 0); cabine.userData.isBarco = true; barco.add(cabine);
-      collidersBarco.push(cabine);
-
       barco.position.set(24, 0.2, 5);
       barco.rotation.y = -0.8;
       adicionarItensAoBarco();
@@ -275,20 +268,6 @@ async function criarBarco() {
 
 function adicionarItensAoBarco() {
   barco.userData = { passageiros: [] };
-  const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128;
-  const ctx = canvas.getContext('2d'); ctx.fillStyle = '#0a0e1a'; ctx.fillRect(0, 0, 512, 128);
-  ctx.strokeStyle = '#d4af37'; ctx.lineWidth = 6; ctx.strokeRect(6, 6, 500, 116);
-  ctx.fillStyle = '#22c55e'; ctx.font = 'bold 34px sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText('POSSÍVEIS MORADORES', 256, 55);
-  ctx.font = '18px sans-serif'; ctx.fillStyle = '#94a3b8';
-  ctx.fillText('aguardando comentário...', 256, 90);
-  
-  const placa = new THREE.Mesh(
-    new THREE.PlaneGeometry(2.5, 0.6),
-    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), side: THREE.DoubleSide })
-  );
-  placa.position.set(0, 1.8, 0.5);
-  barco.add(placa);
 }
 
 // ============================================================
@@ -358,7 +337,7 @@ function atualizarStats() {
 }
 
 // ============================================================
-// VOZ (TTS)
+// VOZ
 // ============================================================
 let vozAtivada = false;
 let vozesDisponiveis = [];
@@ -386,7 +365,7 @@ function falar(texto) {
 }
 
 // ============================================================
-// CÂMERA E CONTROLES DE FÍSICA (FPS)
+// CÂMERA E FPS
 // ============================================================
 let camAnim = null;
 function voarPara(alvo, duracao = 2000, offset = new THREE.Vector3(0, 9, 11)) {
@@ -436,22 +415,41 @@ function getIntersects(e, objects) {
 
 let modoPrimeiraPessoa = false;
 let modoSpray = false;
-let corSpray = '#ff0000';
 let estaPintando = false;
 let alturaCamera = 0; 
+let corSpray = "#ff0000";
 
 const keys = { w: false, a: false, s: false, d: false };
 let yaw = 0, pitch = 0;
 
+// ============================================================
+// ATALHOS DE TECLADO (CHAT, PIXAR, IMAGEM)
+// ============================================================
 addEventListener('keydown', (e) => {
-  if (!modoPrimeiraPessoa) return;
-  switch(e.key.toLowerCase()) {
-    case 'w': keys.w = true; break;
-    case 'a': keys.a = true; break;
-    case 's': keys.s = true; break;
-    case 'd': keys.d = true; break;
+  if (modoPrimeiraPessoa) {
+    switch(e.key.toLowerCase()) {
+      case 'w': keys.w = true; break;
+      case 'a': keys.a = true; break;
+      case 's': keys.s = true; break;
+      case 'd': keys.d = true; break;
+      // Atalho para Chat
+      case 't': 
+        e.preventDefault();
+        document.exitPointerLock();
+        document.getElementById('chat-input').focus();
+        break;
+      // Atalho para Spray
+      case 'p':
+        toggleSpray();
+        break;
+      // Atalho para Imagem
+      case 'i':
+        document.getElementById('file-cartaz').click();
+        break;
+    }
   }
 });
+
 addEventListener('keyup', (e) => {
   switch(e.key.toLowerCase()) {
     case 'w': keys.w = false; break;
@@ -482,13 +480,11 @@ addEventListener('mousemove', e => {
         splat.position.add(normal.multiplyScalar(0.01)); 
       }
     } else {
-      // Pointer Lock: Movimento absoluto do mouse
       yaw -= e.movementX * 0.002;
       pitch -= e.movementY * 0.002;
       pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
     }
   } else {
-    // Hover do mapa
     const hitsBarco = getIntersects(e, [barco]);
     if (hitsBarco.length > 0) {
       tooltipEl.innerHTML = `<strong>Navio Interativo</strong> · Clique para entrar`;
@@ -529,22 +525,18 @@ addEventListener('click', e => {
     controls.enabled = false;
     document.getElementById('ship-ui').classList.add('active');
     
-    // Ativa o Pointer Lock para o mouse não sair da tela
     renderer.domElement.requestPointerLock();
-
-    // Ajusta o FOV para 75 (sensação de estar DENTRO do barco)
     camera.fov = 75;
     camera.updateProjectionMatrix();
     
-    // Posição inicial no convés
     const startPos = barco.position.clone();
-    startPos.y += 1.8; // Altura dos olhos
+    startPos.y += 1.8; 
     startPos.z += 3;   
     camera.position.copy(startPos);
     
     yaw = barco.rotation.y; pitch = 0;
     
-    if (vozAtivada) falar("Bem-vindo ao navio! Use W, A, S, D para andar. Aperte ESC para sair.");
+    if (vozAtivada) falar("Bem-vindo ao navio! [T] Chat, [P] Spray, [I] Imagem.");
     return;
   }
 
@@ -563,7 +555,7 @@ addEventListener('click', e => {
   }
 });
 
-// SAIR DO NAVIO (Ao apertar ESC)
+// SAIR DO NAVIO
 document.addEventListener('pointerlockchange', () => {
   if (!document.pointerLockElement && modoPrimeiraPessoa) {
     fecharNavio();
@@ -572,24 +564,19 @@ document.addEventListener('pointerlockchange', () => {
 
 function fecharNavio() {
   if (!modoPrimeiraPessoa) return;
-  
   modoPrimeiraPessoa = false;
   modoSpray = false;
   estaPintando = false;
   controls.enabled = true;
   document.getElementById('ship-ui').classList.remove('active');
-  
-  // Restaura FOV do mapa
   camera.fov = 45;
   camera.updateProjectionMatrix();
-
-  // Reseta a câmera pro mapa
   voarPara(new THREE.Vector3(0, 1.5, 0), 1800, new THREE.Vector3(0, 25, 35));
 }
 window.fecharNavio = fecharNavio;
 
 // ============================================================
-// PEERJS E CUSTOMIZAÇÃO
+// PEERJS E UI DO NAVIO
 // ============================================================
 const ROOM_ID = 'brasil3d-sala-global-v3';
 let peer, connections = [];
@@ -615,6 +602,7 @@ document.getElementById('chat-send').addEventListener('click', () => {
     addChatMessage(user, text);
     connections.forEach(conn => { if (conn.open) conn.send({ type: 'chat', user, text }); });
     chatInput.value = '';
+    renderer.domElement.requestPointerLock(); // Devolve o mouse pro jogo
   }
 });
 
@@ -626,43 +614,66 @@ function addChatMessage(user, text) {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-document.getElementById('save-custom').addEventListener('click', () => {
-  document.getElementById('customize-panel').classList.remove('active');
+// BOTÃO SPRAY E PALETA DE CORES
+const btnSpray = document.getElementById('btn-pixar');
+const colorPicker = document.getElementById('color-picker');
+
+colorPicker.addEventListener('input', (e) => {
+  corSpray = e.target.value;
 });
 
-const btnSpray = document.createElement('button');
-btnSpray.textContent = 'Ativar Spray (Pintar)';
-btnSpray.style.cssText = 'width:100%; background:#eab308; color:#000; font-weight:bold; border:none; padding:8px; border-radius:6px; cursor:pointer; margin-bottom:8px;';
-btnSpray.onclick = () => {
+function toggleSpray() {
   if (!modoSpray) {
-    const cor = prompt("Digite a cor HEX do spray (ex: #ff0000):", corSpray);
-    if (cor) corSpray = cor;
     modoSpray = true;
     btnSpray.textContent = '🛑 Parar Spray';
     btnSpray.style.background = '#ef4444';
     btnSpray.style.color = '#fff';
+    falar("Spray ativado. Clique e arraste no navio para pintar.");
   } else {
     modoSpray = false;
-    btnSpray.textContent = 'Ativar Spray (Pintar)';
+    btnSpray.textContent = '🎨 Ativar Spray';
     btnSpray.style.background = '#eab308';
     btnSpray.style.color = '#000';
   }
-};
-document.querySelector('#ship-ui div:last-child').insertBefore(btnSpray, document.getElementById('btn-cartaz'));
+}
 
-document.getElementById('btn-cartaz').addEventListener('click', () => {
-  const url = prompt("Cole a URL da imagem do cartaz:");
-  if (url) {
-    new THREE.TextureLoader().load(url, (tex) => {
-      const cartaz = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2), new THREE.MeshBasicMaterial({ map: tex }));
-      barco.attach(cartaz);
-      cartaz.position.set(0, 3, 2); 
-    });
+btnSpray.addEventListener('click', () => {
+  toggleSpray();
+  // Se o usuário clicar no painel, o mouse sai do PointerLock, a gente devolve:
+  if (modoSpray) {
+    setTimeout(() => renderer.domElement.requestPointerLock(), 100);
   }
 });
 
+// UPLOAD DE IMAGEM (CARTAZ)
+const btnCartaz = document.getElementById('btn-cartaz');
+const fileInput = document.getElementById('file-cartaz');
+
+btnCartaz.addEventListener('click', () => {
+  fileInput.click();
+});
+
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    const tex = new THREE.TextureLoader().load(event.target.result);
+    const cartaz = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+    
+    // Fixa o cartaz no barco
+    barco.attach(cartaz);
+    cartaz.position.set(0, 3, 2); 
+    
+    fileInput.value = ''; // Limpa o input
+    setTimeout(() => renderer.domElement.requestPointerLock(), 100); // Devolve o mouse
+  };
+  reader.readAsDataURL(file);
+});
+
 // ============================================================
-// LOOP DE ANIMAÇÃO (Física Avançada FPS)
+// LOOP DE ANIMAÇÃO E FÍSICA
 // ============================================================
 const clock = new THREE.Clock();
 const raycasterChao = new THREE.Raycaster();
@@ -680,7 +691,7 @@ function animar() {
     barco.rotation.x = Math.cos(t * 0.8) * 0.03;
     
     if (modoPrimeiraPessoa) {
-      // 1. Movimentação
+      // Física de movimento
       const speed = 0.12;
       const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
       const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -693,42 +704,35 @@ function animar() {
       
       if (moveDir.length() > 0) {
         moveDir.normalize();
-        
-        // Colisão de Parede (Avança um pouco a frente e testa)
         const raioParedeOrigem = camera.position.clone();
-        raioParedeOrigem.y += 0.5; // Peito
+        raioParedeOrigem.y += 0.5;
         raycasterParede.set(raioParedeOrigem, moveDir);
-        raycasterParede.far = 0.8; // Distância do corpo
+        raycasterParede.far = 0.8;
         const hitsParede = raycasterParede.intersectObjects(collidersBarco, false);
         
-        // Se não bater na parede, deixa andar
         if (hitsParede.length === 0) {
           camera.position.add(moveDir.multiplyScalar(speed));
         }
       }
 
-      // 2. Física de Queda e Chão (Escadas)
+      // Física de altura/queda
       const origin = camera.position.clone();
       origin.y += 0.5; 
-      
       raycasterChao.set(origin, new THREE.Vector3(0, -1, 0));
       raycasterChao.far = 5;
       const hits = raycasterChao.intersectObjects(collidersBarco, false);
       
       if (hits.length > 0) {
         const alturaChao = hits[0].point.y;
-        // Sobe se tiver degrau, desce se estiver no ar
         alturaCamera = alturaChao + 1.6; 
         camera.position.y = THREE.MathUtils.lerp(camera.position.y, alturaCamera, 0.3); 
       } else {
-        // Gravidade (caiu do barco)
         camera.position.y -= 0.1;
         if (camera.position.y < -1) {
           camera.position.set(barco.position.x, barco.position.y + 2, barco.position.z + 2);
         }
       }
 
-      // 3. Rotação
       camera.rotation.set(pitch, yaw, 0, 'YXZ');
     }
 
